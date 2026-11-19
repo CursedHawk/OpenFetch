@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json.Nodes;
 using OpenFetch.AspNetCore.OpenApi;
 using OpenFetch.Tests.Domain;
@@ -78,6 +79,29 @@ public class OpenApiTests(PostgresFixture pg)
             var example = doc["paths"]!["/query/" + dataset]!["post"]!["requestBody"]!["content"]!["application/json"]!["example"]!;
             await engine.PrepareAsync(dataset, example.ToJsonString(), TestEngine.Context(SeedData.TenantA, []));
         }
+    }
+
+    [Fact]
+    public async Task Policy_profile_documents_include_only_what_the_profile_may_use()
+    {
+        await using var app = await TestHost.StartAsync(pg.AppConnectionString(), o => o.Dataset<Customer>().RequirePolicy("Orders.Read"), b =>
+        {
+            b.Services.AddOpenApi("public", o => o.AddOpenFetch(profile: []));
+            b.Services.AddOpenApi("finance", o => o.AddOpenFetch(profile: ["Orders.FinancialData", "Orders.Read"]));
+        });
+        var client = app.GetTestClient();
+        var pub = JsonNode.Parse(await client.GetStringAsync("/openapi/public.json", Ct))!;
+        var fin = JsonNode.Parse(await client.GetStringAsync("/openapi/finance.json", Ct))!;
+
+        Assert.Null(pub["components"]!["schemas"]!["OrdersRow"]!["properties"]!["total"]);
+        Assert.Null(pub["components"]!["schemas"]!["OrdersRow"]!["properties"]!["customer"]);   // target dataset needs Orders.Read
+        Assert.Null(pub["paths"]!["/query/customers"]);
+        Assert.Null(pub["components"]!["schemas"]!["CustomersQuery"]);
+        Assert.DoesNotContain("customer.name", pub["components"]!["schemas"]!["OrdersSelectableField"]!.ToJsonString());
+
+        Assert.NotNull(fin["components"]!["schemas"]!["OrdersRow"]!["properties"]!["total"]);
+        Assert.NotNull(fin["paths"]!["/query/customers"]);
+        Assert.Equal(["Orders.FinancialData", "Orders.Read"], fin["x-openfetch-profile"]!["policies"]!.AsArray().Select(v => (string)v!));
     }
 
     [Fact]

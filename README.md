@@ -162,6 +162,14 @@ Each dataset gets these component schemas:
 
 Operations carry an example request and `x-openfetch-*` extensions for capabilities, operators, limits, authorization, complexity, and relationships.
 
+For stable authorization profiles (§18.7), register named documents. Each one contains only what a caller holding exactly those policies can use:
+
+```csharp
+builder.Services.AddOpenApi("public",  o => o.AddOpenFetch(profile: []));
+builder.Services.AddOpenApi("finance", o => o.AddOpenFetch(profile: ["Orders.FinancialData"]));
+// served at /openapi/public.json and /openapi/finance.json
+```
+
 The committed contract [openapi/v1.json](openapi/v1.json) is checked by the test suite against the generated document and a breaking-change detector. CI also generates and compiles a Kiota C# client and an `openapi-typescript` client ([eng/sdk-smoke](eng/sdk-smoke)).
 
 ## Development
@@ -203,7 +211,8 @@ dotnet nuget add source "https://gitlab.highgeek.eu/api/v4/projects/5/packages/n
 
 ## Status and known limits (v0.1)
 
-- **Providers:** PostgreSQL only. SQL Server and the query-shape plan cache are v0.2; the shape key already exists.
+- **Providers:** PostgreSQL only; SQL Server is v0.2.
+- **Plan reuse:** SQL text depends only on the query shape, never on values or tenants, so the provider statement cache and the database plan cache reuse plans without a separate OpenFetch cache.
 - **Not yet supported:** aggregation, grouping, collection relationships, and inheritance or owned-type datasets. They are rejected at startup or with `unsupported_provider_feature`.
 - **Response buffering:** responses are buffered up to `MaximumResponseBytes` (4 MiB by default) before they are sent, so a limit breach still returns a clean error status.
 - **Rate limiting:** `AddOpenFetchRateLimiting` limits concurrency only. To limit request rate, attach your own policy to the builder that `MapOpenFetch` returns.

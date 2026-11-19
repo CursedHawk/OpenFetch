@@ -8,11 +8,19 @@ namespace OpenFetch.AspNetCore.OpenApi;
 
 public static class OpenFetchOpenApiExtensions
 {
-    /// <summary>Adds the OpenFetch transformers (§18.8). Everything is generated from the finalized QueryModel; there is no second exposure config.</summary>
-    public static OpenApiOptions AddOpenFetch(this OpenApiOptions options)
+    /// <summary>
+    /// Adds the OpenFetch transformers (§18.8). Everything is generated from the finalized QueryModel; there is no second exposure config.
+    /// With <paramref name="profile"/> = null the document describes every deployable capability (policies annotated via
+    /// x-openfetch-authorization). With a profile (§18.7), only datasets/fields/relationships whose policies are all in the
+    /// profile are included, e.g. <c>AddOpenApi("public", o =&gt; o.AddOpenFetch(profile: []))</c>.
+    /// </summary>
+    public static OpenApiOptions AddOpenFetch(this OpenApiOptions options, IReadOnlyCollection<string>? profile = null)
     {
-        options.AddDocumentTransformer<OpenFetchDocumentTransformer>();
-        options.AddOperationTransformer<OpenFetchOperationTransformer>();
+        Func<IEnumerable<string>, bool> allowed = profile is null ? _ => true : p => p.All(profile.Contains);
+        options.AddOperationTransformer((op, ctx, ct) =>
+            new OpenFetchOperationTransformer(ctx.ApplicationServices.GetRequiredService<QueryEngine>(), allowed).TransformAsync(op, ctx, ct));
+        options.AddDocumentTransformer((doc, ctx, ct) =>
+            new OpenFetchDocumentTransformer(ctx.ApplicationServices.GetRequiredService<QueryEngine>(), allowed, profile).TransformAsync(doc, ctx, ct));
         return options;
     }
 }
@@ -22,7 +30,7 @@ public static class OpenFetchOpenApiExtensions
 /// discriminator, each branch with a const type), XComparisonFilter, XLogicalFilter, XNotFilter, XOrder, XPage, XRow, XResult.
 /// Comparison filters use operator-family form (field enum x operator enum); runtime validation stays authoritative.
 /// </summary>
-public sealed class OpenFetchDocumentTransformer(QueryEngine engine) : IOpenApiDocumentTransformer
+public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnumerable<string>, bool> allowed, IReadOnlyCollection<string>? profile = null) : IOpenApiDocumentTransformer
 {
     public Task TransformAsync(OpenApiDocument document, OpenApiDocumentTransformerContext context, CancellationToken cancellationToken)
     {
@@ -33,6 +41,13 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine) : IOpenApiD
         document.Extensions["x-openfetch-version"] = Ext(QueryParser.Version);
         document.Extensions["x-openfetch-provider"] = Ext(new JsonObject { ["name"] = engine.Compiler.ProviderName, ["compilerVersion"] = engine.Compiler.CompilerVersion });
         document.Extensions["x-openfetch-model-version"] = Ext(model.Version);
+        if (profile is not null) document.Extensions["x-openfetch-profile"] = Policies(profile.Order(StringComparer.Ordinal));
+
+        // Operation transformers run first; drop operations for datasets outside this profile.
+        foreach (var (path, item) in document.Paths?.ToList() ?? [])
+            if (item.Operations?.Values.Any(o => o.Extensions?.TryGetValue("x-openfetch-dataset", out var d) == true
+                    && d is JsonNodeExtension { Node: var n } && !Visible(model, (string)n!)) == true)
+                document.Paths!.Remove(path);
 
         schemas["OpenFetchProblem"] = new OpenApiSchema
         {
@@ -62,17 +77,19 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine) : IOpenApiD
             Type = JsonSchemaType.String | JsonSchemaType.Number | JsonSchemaType.Boolean | JsonSchemaType.Null,
         };
 
-        foreach (var d in model.Datasets.Values.OrderBy(d => d.PublicName, StringComparer.Ordinal))
+        foreach (var d in model.Datasets.Values.Where(d => Visible(model, d.PublicName)).OrderBy(d => d.PublicName, StringComparer.Ordinal))
             AddDataset(schemas, model, d);
         return Task.CompletedTask;
     }
 
-    private static void AddDataset(IDictionary<string, IOpenApiSchema> schemas, QueryModel model, DatasetDescriptor d)
+    private bool Visible(QueryModel model, string dataset) => allowed(model.Datasets[dataset].Policies);
+
+    private void AddDataset(IDictionary<string, IOpenApiSchema> schemas, QueryModel model, DatasetDescriptor d)
     {
         var x = QueryModelBuilder.ComponentName(d.PublicName);
-        var selectable = Paths(model, d, ColumnCapabilities.Select, RelationshipCapabilities.Select);
-        var sortable = Paths(model, d, ColumnCapabilities.Sort, RelationshipCapabilities.Sort);
-        var filterable = Paths(model, d, ColumnCapabilities.Filter, RelationshipCapabilities.Filter);
+        var selectable = Paths(model, d, ColumnCapabilities.Select, RelationshipCapabilities.Select, allowed);
+        var sortable = Paths(model, d, ColumnCapabilities.Sort, RelationshipCapabilities.Sort, allowed);
+        var filterable = Paths(model, d, ColumnCapabilities.Filter, RelationshipCapabilities.Filter, allowed);
         var limits = model.Limits;
 
         schemas[x + "SelectableField"] = Enum(selectable.Select(p => p.Path));
@@ -160,8 +177,8 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine) : IOpenApiD
 
         // §18.5: a superset row; every property optional because only selected fields are returned.
         var row = new Dictionary<string, IOpenApiSchema>();
-        foreach (var c in d.ExposedColumns.Where(c => c.Can(ColumnCapabilities.Select))) row[c.PublicName] = Column(c);
-        foreach (var r in d.Relationships.Values.Where(r => r.Can(RelationshipCapabilities.Select)).OrderBy(r => r.PublicName, StringComparer.Ordinal))
+        foreach (var c in d.ExposedColumns.Where(c => c.Can(ColumnCapabilities.Select) && allowed(c.Policies))) row[c.PublicName] = Column(c);
+        foreach (var r in d.Relationships.Values.Where(r => r.Can(RelationshipCapabilities.Select) && allowed(r.Policies) && Visible(model, r.TargetDataset)).OrderBy(r => r.PublicName, StringComparer.Ordinal))
         {
             var target = QueryModelBuilder.ComponentName(r.TargetDataset);
             row[r.PublicName] = new OpenApiSchema
@@ -184,13 +201,14 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine) : IOpenApiD
     internal sealed record PathColumn(string Path, ColumnDescriptor Column);
 
     /// <summary>All field paths usable for a capability, following relationships up to their allowed depth.</summary>
-    internal static List<PathColumn> Paths(QueryModel model, DatasetDescriptor root, ColumnCapabilities cap, RelationshipCapabilities rel)
+    internal static List<PathColumn> Paths(QueryModel model, DatasetDescriptor root, ColumnCapabilities cap, RelationshipCapabilities rel, Func<IEnumerable<string>, bool> allowed)
     {
         var result = new List<PathColumn>();
         void Walk(DatasetDescriptor d, string prefix, int depth)
         {
-            foreach (var c in d.ExposedColumns.Where(c => c.Can(cap))) result.Add(new(prefix + c.PublicName, c));
-            foreach (var r in d.Relationships.Values.Where(r => r.Can(rel) && depth + 1 <= Math.Min(r.MaximumDepth, root.MaximumRelationshipDepth)).OrderBy(r => r.PublicName, StringComparer.Ordinal))
+            foreach (var c in d.ExposedColumns.Where(c => c.Can(cap) && allowed(c.Policies))) result.Add(new(prefix + c.PublicName, c));
+            foreach (var r in d.Relationships.Values.Where(r => r.Can(rel) && allowed(r.Policies) && allowed(model.Datasets[r.TargetDataset].Policies)
+                         && depth + 1 <= Math.Min(r.MaximumDepth, root.MaximumRelationshipDepth)).OrderBy(r => r.PublicName, StringComparer.Ordinal))
                 Walk(model.Datasets[r.TargetDataset], prefix + r.PublicName + ".", depth + 1);
         }
         Walk(root, "", 0);
@@ -248,7 +266,7 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine) : IOpenApiD
 }
 
 /// <summary>Dataset operations: operationId, typed request/response refs, errors, limits, policies, example (§18.6, §18.8).</summary>
-public sealed class OpenFetchOperationTransformer(QueryEngine engine) : IOpenApiOperationTransformer
+public sealed class OpenFetchOperationTransformer(QueryEngine engine, Func<IEnumerable<string>, bool> allowed) : IOpenApiOperationTransformer
 {
     public Task TransformAsync(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
     {
@@ -269,7 +287,7 @@ public sealed class OpenFetchOperationTransformer(QueryEngine engine) : IOpenApi
             Required = true,
             Content = new Dictionary<string, OpenApiMediaType>
             {
-                ["application/json"] = new() { Schema = OpenFetchDocumentTransformer.Ref(x + "Query"), Example = Example(model, d) },
+                ["application/json"] = new() { Schema = OpenFetchDocumentTransformer.Ref(x + "Query"), Example = Example(model, d, allowed) },
             },
         };
         operation.Responses = new OpenApiResponses
@@ -324,9 +342,9 @@ public sealed class OpenFetchOperationTransformer(QueryEngine engine) : IOpenApi
     }
 
     /// <summary>A small valid request: the first selectable fields, ordered by the first sortable field. Validated by tests through the engine.</summary>
-    public static JsonNode Example(QueryModel model, DatasetDescriptor d)
+    public static JsonNode Example(QueryModel model, DatasetDescriptor d, Func<IEnumerable<string>, bool> allowed)
     {
-        var select = OpenFetchDocumentTransformer.Paths(model, d, ColumnCapabilities.Select, RelationshipCapabilities.Select)
+        var select = OpenFetchDocumentTransformer.Paths(model, d, ColumnCapabilities.Select, RelationshipCapabilities.Select, allowed)
             .Where(p => p.Column.Policies.IsEmpty).Take(3).Select(p => (JsonNode)p.Path);
         var example = new JsonObject { ["version"] = QueryParser.Version, ["select"] = new JsonArray([.. select]), ["page"] = new JsonObject { ["first"] = Math.Min(10, d.MaximumPageSize) } };
         var sort = d.ExposedColumns.FirstOrDefault(c => c.Can(ColumnCapabilities.Sort) && c.Policies.IsEmpty);
