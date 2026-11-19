@@ -102,6 +102,16 @@ The model is built and validated once, when the endpoints are mapped. If anythin
 - **One policy set per column.** A column's policies gate all of its uses: select, filter, sort, cursor. A field you cannot select can never be used as a Boolean oracle.
 - **No disclosure of inaccessible things.** Inaccessible datasets, fields and relationships produce the same errors as unknown ones. The schema endpoint omits them.
 
+## Inheritance and owned types
+
+| EF Core mapping | OpenFetch behaviour |
+|---|---|
+| TPH (one table per hierarchy) | Any type can be a dataset. A derived dataset receives a trusted discriminator predicate, so it only ever sees its own type and subtypes, including through joins, `any` and `expand`. |
+| TPT (one table per type) | A derived dataset `INNER JOIN`s each base-type table on the key. Inherited columns are read from their own table. |
+| TPC (one table per concrete type) | A type with subtypes reads `UNION ALL` over every concrete table. A leaf type reads its own table. |
+| Owned reference (`OwnsOne`, table splitting) | Owned properties are dotted columns (`home.city`) returned as nested objects. The owner navigation needs `[QueryRelationship]` and each owned property `[QueryColumn]`. |
+| Owned collection (`OwnsMany`) | Becomes an internal dataset, reachable only via `any`/`expand` through its owner and never queryable directly. |
+
 ## Security model
 
 1. **Authentication and tenant.** Authentication is required when configured (401). The tenant comes only from the configured claim; a caller without one gets 403.
@@ -130,7 +140,7 @@ OpenFetch compiles SQL directly, so **EF global query filters (`HasQueryFilter`)
 | Filters | Tagged union: `comparison` / `logical` (`and`, `or`) / `not` |
 | Operators | `eq ne gt gte lt lte in notIn between notBetween contains startsWith endsWith`, further limited per column and type. String comparisons follow the column collation, which is case-sensitive by default on PostgreSQL and case-insensitive by default on SQL Server. |
 | Relationships | To-one: dotted paths (`customer.name`) in `select`, `where` and `orderBy`; returned as nested objects (`null` when the related row is absent or hidden). |
-| Collections | One-to-many relationships are never traversed with dotted paths. Filter with `{"type":"any","relationship":"orders","where":{…}}`, which compiles to `EXISTS` with the target's row policy inside; use `not any` for "none" and `not any(not …)` for "all". Return related rows with `"expand":[{"relationship":"orders","select":[…],"where":…,"orderBy":…,"first":10}]`, which runs as a per-parent top-N split query in the same transaction, so value converters and policies still apply. Both forms use the target's own fields only. |
+| Collections | One-to-many relationships are never traversed with dotted paths. Filter with `{"type":"any","relationship":"orders","where":{…}}`, which compiles to `EXISTS` with the target's row policy inside; use `not any` for "none" and `not any(not …)` for "all". Return related rows with `"expand":[{"relationship":"orders","select":[…],"where":…,"orderBy":…,"first":10}]`, which runs as a per-parent top-N split query in the same transaction, so value converters and policies still apply. `first` defaults to 10. Parent page size × `first`, summed over expansions, must stay within `limits.MaximumExpandedRows` (default 5,000). Both forms use the target's own fields only, and `any` is not allowed in `having`. |
 | Values | Native JSON. Dates, GUIDs and enums are strings: see [docs/spec-profile.md](docs/spec-profile.md). |
 | Aggregation | Datasets opt in with `DatasetCapabilities.Aggregation`. `groupBy` takes `Group` columns; `aggregates` is a list of `{function, field?, alias}` using `count`, `countDistinct`, `sum`, `avg`, `min`, `max` over `Aggregate` columns; `having` filters on aliases or group fields. Row policies and RLS still apply before grouping. Results are identical across providers: counts and integer sums are 64-bit, and averages are `decimal(38,10)`. Paging is offset-only. |
 | Paging | `page.first` plus either `page.after` (cursor) or `page.offset` (bounded). The key is always appended as a tie-breaker, and `endCursor` is returned when every ordering field is cursor-eligible. |
@@ -218,6 +228,5 @@ dotnet nuget add source "https://gitlab.highgeek.eu/api/v4/projects/5/packages/n
 
 - **Providers:** PostgreSQL and SQL Server. On SQL Server, `distinct` queries use native NULL ordering, because ORDER BY may only reference select-list items under DISTINCT.
 - **Plan reuse:** SQL text depends only on the query shape, never on values or tenants, so the provider statement cache and the database plan cache reuse plans without a separate OpenFetch cache.
-- **Not yet supported (in progress, E12):** inheritance and owned-type datasets. They are rejected at startup.
 - **Response buffering:** responses are buffered up to `MaximumResponseBytes` (4 MiB by default) before they are sent, so a limit breach still returns a clean error status.
 - **Rate limiting:** `AddOpenFetchRateLimiting` limits concurrency only. To limit request rate, attach your own policy to the builder that `MapOpenFetch` returns.
