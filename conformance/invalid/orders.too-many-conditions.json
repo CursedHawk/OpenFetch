@@ -1,0 +1,317 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "logical",
+    "operator": "and",
+    "children": [
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 0
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 1
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 2
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 3
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 4
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 5
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 6
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 7
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 8
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 9
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 10
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 11
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 12
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 13
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 14
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 15
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 16
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 17
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 18
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 19
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 20
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 21
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 22
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 23
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 24
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 25
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 26
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 27
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 28
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 29
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 30
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 31
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 32
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 33
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 34
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 35
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 36
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 37
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 38
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 39
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 40
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 41
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 42
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 43
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 44
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 45
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 46
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 47
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 48
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 49
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 50
+      }
+    ]
+  }
+}

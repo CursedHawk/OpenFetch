@@ -1,0 +1,38 @@
+{
+  "select": [
+    "number"
+  ],
+  "where": {
+    "type": "logical",
+    "operator": "and",
+    "children": [
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 0
+      },
+      {
+        "type": "logical",
+        "operator": "or",
+        "children": [
+          {
+            "type": "comparison",
+            "field": "status",
+            "operator": "eq",
+            "value": "open"
+          },
+          {
+            "type": "not",
+            "operand": {
+              "type": "comparison",
+              "field": "number",
+              "operator": "startsWith",
+              "value": "X"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

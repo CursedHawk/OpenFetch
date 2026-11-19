@@ -1,0 +1,8 @@
+{
+  "select": [
+    "id"
+  ],
+  "page": {
+    "after": "not-a-cursor"
+  }
+}

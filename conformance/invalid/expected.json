@@ -1,0 +1,246 @@
+{
+  "orders.after-and-offset": {
+    "code": "invalid_query",
+    "path": "/page"
+  },
+  "orders.between-object": {
+    "code": "invalid_value_type",
+    "path": "/where/value/1"
+  },
+  "orders.between-three": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.compareTo-disabled": {
+    "code": "unsupported_provider_feature",
+    "path": "/where/compareTo"
+  },
+  "orders.cursor-garbage": {
+    "code": "invalid_cursor",
+    "path": "/page/after"
+  },
+  "orders.cursor-with-non-cursor-order": {
+    "code": "unsupported_provider_feature",
+    "path": "/page/after"
+  },
+  "orders.date-invalid": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.date-without-offset": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.direction-invalid": {
+    "code": "invalid_query",
+    "path": "/orderBy/0/direction"
+  },
+  "orders.distinct-disabled": {
+    "code": "unsupported_provider_feature",
+    "path": "/distinct"
+  },
+  "orders.distinct-not-bool": {
+    "code": "invalid_query",
+    "path": "/distinct"
+  },
+  "orders.duplicate-property": {
+    "code": "invalid_json",
+    "path": null
+  },
+  "orders.enum-number": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.enum-wrong-case": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.filter-too-deep": {
+    "code": "query_too_complex",
+    "path": "/where/operand/operand/operand/operand/operand/operand"
+  },
+  "orders.filter-type-unknown": {
+    "code": "invalid_query",
+    "path": "/where/type"
+  },
+  "orders.hidden-field": {
+    "code": "unknown_field",
+    "path": "/select/0"
+  },
+  "orders.hidden-field-in-filter": {
+    "code": "unknown_field",
+    "path": "/where/field"
+  },
+  "orders.hidden-field-property-name": {
+    "code": "unknown_field",
+    "path": "/select/0"
+  },
+  "orders.in-empty": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.in-not-array": {
+    "code": "invalid_query",
+    "path": "/where/value"
+  },
+  "orders.in-null-element": {
+    "code": "invalid_value_type",
+    "path": "/where/value/1"
+  },
+  "orders.in-too-many-through-relationship": {
+    "code": "query_too_complex",
+    "path": "/where/value"
+  },
+  "orders.in-too-many-values": {
+    "code": "query_too_complex",
+    "path": "/where/value"
+  },
+  "orders.injection-direction": {
+    "code": "invalid_query",
+    "path": "/orderBy/0/direction"
+  },
+  "orders.injection-field": {
+    "code": "unknown_field",
+    "path": "/select/0"
+  },
+  "orders.injection-operator": {
+    "code": "unsupported_operator",
+    "path": "/where/operator"
+  },
+  "orders.injection-path-traversal": {
+    "code": "unknown_field",
+    "path": "/select/0"
+  },
+  "orders.injection-schema-qualified": {
+    "code": "unknown_field",
+    "path": "/select/0"
+  },
+  "orders.invalid-guid": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.invalid-json": {
+    "code": "invalid_json",
+    "path": null
+  },
+  "orders.logical-bad-operator": {
+    "code": "invalid_query",
+    "path": "/where/operator"
+  },
+  "orders.logical-empty": {
+    "code": "invalid_query",
+    "path": "/where/children"
+  },
+  "orders.not-object": {
+    "code": "invalid_query",
+    "path": "/"
+  },
+  "orders.null-non-nullable": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.null-with-gt": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.offset-too-large": {
+    "code": "query_too_complex",
+    "path": "/page/offset"
+  },
+  "orders.operator-not-allowed": {
+    "code": "unsupported_operator",
+    "path": "/where/operator"
+  },
+  "orders.order-duplicate": {
+    "code": "invalid_query",
+    "path": "/orderBy/1/field"
+  },
+  "orders.page-size-exceeded": {
+    "code": "page_size_exceeded",
+    "path": "/page/first"
+  },
+  "orders.page-size-fraction": {
+    "code": "invalid_query",
+    "path": "/page/first"
+  },
+  "orders.page-size-zero": {
+    "code": "page_size_exceeded",
+    "path": "/page/first"
+  },
+  "orders.physical-name": {
+    "code": "unknown_field",
+    "path": "/select/0"
+  },
+  "orders.relationship-hidden-field": {
+    "code": "unknown_field",
+    "path": "/orderBy/0/field"
+  },
+  "orders.relationship-too-deep": {
+    "code": "unknown_field",
+    "path": "/select/0"
+  },
+  "orders.select-duplicate": {
+    "code": "invalid_query",
+    "path": "/select/1"
+  },
+  "orders.select-empty": {
+    "code": "invalid_query",
+    "path": "/select"
+  },
+  "orders.select-missing": {
+    "code": "invalid_query",
+    "path": "/select"
+  },
+  "orders.select-not-string": {
+    "code": "invalid_query",
+    "path": "/select/0"
+  },
+  "orders.string-for-boolean-like": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  },
+  "orders.string-op-on-number": {
+    "code": "unsupported_operator",
+    "path": "/where/operator"
+  },
+  "orders.too-many-conditions": {
+    "code": "query_too_complex",
+    "path": "/where"
+  },
+  "orders.unknown-field": {
+    "code": "unknown_field",
+    "path": "/select/1"
+  },
+  "orders.unknown-filter-property": {
+    "code": "invalid_query",
+    "path": "/where/sql"
+  },
+  "orders.unknown-operator": {
+    "code": "unsupported_operator",
+    "path": "/where/operator"
+  },
+  "orders.unknown-property": {
+    "code": "invalid_query",
+    "path": "/limit"
+  },
+  "orders.unknown-relationship": {
+    "code": "unknown_field",
+    "path": "/select/0"
+  },
+  "orders.unsupported-version": {
+    "code": "unsupported_version",
+    "path": "/version"
+  },
+  "orders.value-and-compareTo": {
+    "code": "invalid_query",
+    "path": "/where"
+  },
+  "orders.value-missing": {
+    "code": "invalid_query",
+    "path": "/where/value"
+  },
+  "orders.wrong-value-type": {
+    "code": "invalid_value_type",
+    "path": "/where/value"
+  }
+}

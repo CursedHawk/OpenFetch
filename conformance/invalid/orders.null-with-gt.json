@@ -1,0 +1,11 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "total",
+    "operator": "gt",
+    "value": null
+  }
+}

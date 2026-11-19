@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "select": [
+    "id",
+    "number",
+    "status",
+    "total",
+    "createdAt"
+  ],
+  "where": {
+    "logical": "and",
+    "children": [
+      {
+        "field": "status",
+        "operator": "in",
+        "values": [
+          "string:open",
+          "string:processing"
+        ]
+      },
+      {
+        "field": "createdAt",
+        "operator": "gte",
+        "value": "string:2026-01-01T00:00:00Z"
+      }
+    ]
+  },
+  "orderBy": [
+    "createdAt desc",
+    "id asc"
+  ],
+  "page": {
+    "first": 3
+  },
+  "distinct": false
+}

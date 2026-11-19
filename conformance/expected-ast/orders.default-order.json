@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "select": [
+    "number",
+    "status"
+  ],
+  "where": null,
+  "orderBy": [],
+  "page": {
+    "first": 5
+  },
+  "distinct": false
+}

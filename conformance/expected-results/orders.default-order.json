@@ -1,0 +1,33 @@
+{
+  "data": [
+    {
+      "number": "SO-A-0001",
+      "status": "processing"
+    },
+    {
+      "number": "SO-A-0002",
+      "status": "shipped"
+    },
+    {
+      "number": "SO-A-0003",
+      "status": "cancelled"
+    },
+    {
+      "number": "SO-A-0004",
+      "status": "open"
+    },
+    {
+      "number": "SO-A-0005",
+      "status": "processing"
+    }
+  ],
+  "page": {
+    "count": 5,
+    "hasNext": true,
+    "endCursor": "CURSOR"
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "number": "SO-A-0009",
+      "total": 900.50
+    },
+    {
+      "number": "SO-A-0008",
+      "total": 800.50
+    }
+  ],
+  "page": {
+    "count": 2,
+    "hasNext": true,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

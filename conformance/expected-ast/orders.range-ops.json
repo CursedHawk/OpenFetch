@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "select": [
+    "number",
+    "total"
+  ],
+  "where": {
+    "logical": "and",
+    "children": [
+      {
+        "field": "total",
+        "operator": "gt",
+        "value": "number:100"
+      },
+      {
+        "field": "total",
+        "operator": "gte",
+        "value": "number:200.5"
+      },
+      {
+        "field": "total",
+        "operator": "lt",
+        "value": "number:900"
+      },
+      {
+        "field": "total",
+        "operator": "lte",
+        "value": "number:800.5"
+      }
+    ]
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

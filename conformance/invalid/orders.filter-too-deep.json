@@ -1,0 +1,29 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "not",
+    "operand": {
+      "type": "not",
+      "operand": {
+        "type": "not",
+        "operand": {
+          "type": "not",
+          "operand": {
+            "type": "not",
+            "operand": {
+              "type": "not",
+              "operand": {
+                "type": "comparison",
+                "field": "total",
+                "operator": "gt",
+                "value": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

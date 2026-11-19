@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "number": "SO-A-0003"
+    },
+    {
+      "number": "SO-A-0004"
+    }
+  ],
+  "page": {
+    "count": 2,
+    "hasNext": true,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "select": [
+    "number",
+    "createdAt"
+  ],
+  "where": {
+    "field": "createdAt",
+    "operator": "between",
+    "values": [
+      "string:2026-01-02T00:00:00Z",
+      "string:2026-01-05T00:00:00\u002B02:00"
+    ]
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

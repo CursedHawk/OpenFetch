@@ -1,0 +1,14 @@
+{
+  "select": [
+    "number"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "status",
+    "operator": "in",
+    "value": [
+      "open",
+      "shipped"
+    ]
+  }
+}

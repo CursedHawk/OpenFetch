@@ -1,0 +1,11 @@
+{
+  "select": [
+    "id"
+  ],
+  "orderBy": [
+    {
+      "field": "id",
+      "direction": "asc; DROP TABLE x"
+    }
+  ]
+}

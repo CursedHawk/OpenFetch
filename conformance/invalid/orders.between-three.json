@@ -1,0 +1,15 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "total",
+    "operator": "between",
+    "value": [
+      1,
+      2,
+      3
+    ]
+  }
+}

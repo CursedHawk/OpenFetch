@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "select": [
+    "number"
+  ],
+  "where": {
+    "field": "status",
+    "operator": "in",
+    "values": [
+      "string:open",
+      "string:shipped"
+    ]
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

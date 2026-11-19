@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "select": [
+    "id",
+    "name"
+  ],
+  "where": null,
+  "orderBy": [
+    "id desc"
+  ],
+  "page": {
+    "first": 2
+  },
+  "distinct": false
+}

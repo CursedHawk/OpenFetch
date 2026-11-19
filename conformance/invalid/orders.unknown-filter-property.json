@@ -1,0 +1,12 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "id",
+    "operator": "eq",
+    "value": "x",
+    "sql": "1=1"
+  }
+}

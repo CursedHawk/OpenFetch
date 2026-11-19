@@ -1,0 +1,15 @@
+{
+  "select": [
+    "number",
+    "total"
+  ],
+  "orderBy": [
+    {
+      "field": "total",
+      "direction": "desc"
+    }
+  ],
+  "page": {
+    "first": 2
+  }
+}

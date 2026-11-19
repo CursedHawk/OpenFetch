@@ -1,0 +1,36 @@
+{
+  "select": [
+    "number",
+    "total"
+  ],
+  "where": {
+    "type": "logical",
+    "operator": "and",
+    "children": [
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 100
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gte",
+        "value": 200.5
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "lt",
+        "value": 900
+      },
+      {
+        "type": "comparison",
+        "field": "total",
+        "operator": "lte",
+        "value": 800.5
+      }
+    ]
+  }
+}

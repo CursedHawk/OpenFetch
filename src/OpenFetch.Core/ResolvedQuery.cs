@@ -59,8 +59,32 @@ public sealed record CompiledCommand(string CommandText, ImmutableArray<QueryPar
 
 public sealed record QueryParameter(string Name, object? Value);
 
-/// <summary><see cref="Emit"/> false = fetched only for cursor construction.</summary>
-public sealed record ResultColumn(string Path, ColumnDescriptor Column, bool Emit);
+public enum ResultRole
+{
+    /// <summary>Written to the response.</summary>
+    Output,
+    /// <summary>Fetched only to build the next cursor.</summary>
+    Cursor,
+    /// <summary>Target key of a join: null means the related row is absent, so the nested object is written as null.</summary>
+    JoinKey,
+}
+
+/// <summary>One SELECT-list entry. Compilers must emit exactly <see cref="For"/>'s columns, in order.</summary>
+public sealed record ResultColumn(ResolvedField Field, ResultRole Role)
+{
+    public static ImmutableArray<ResultColumn> For(ResolvedQuery q)
+    {
+        var columns = q.Select.Select(f => new ResultColumn(f, ResultRole.Output)).ToList();
+        if (q.CursorCapable)
+            foreach (var o in q.OrderBy.Where(o => !columns.Any(c => Same(c.Field, o.Field))))
+                columns.Add(new ResultColumn(o.Field, ResultRole.Cursor));
+        foreach (var join in q.Joins.Where(j => q.Select.Any(f => f.Path.StartsWith(j.Path + ".", StringComparison.Ordinal))))
+            columns.Add(new ResultColumn(new ResolvedField(join.Alias, join.Path, join.Target.Key[0]), ResultRole.JoinKey));
+        return [.. columns];
+    }
+
+    public static bool Same(ResolvedField a, ResolvedField b) => a.Alias == b.Alias && a.Column == b.Column;
+}
 
 public sealed record QueryPlan(string CommandText, ImmutableArray<QueryParameter> Parameters, ImmutableArray<ResultColumn> ResultColumns)
 {

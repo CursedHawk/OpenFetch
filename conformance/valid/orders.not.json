@@ -1,0 +1,14 @@
+{
+  "select": [
+    "number"
+  ],
+  "where": {
+    "type": "not",
+    "operand": {
+      "type": "comparison",
+      "field": "status",
+      "operator": "eq",
+      "value": "open"
+    }
+  }
+}

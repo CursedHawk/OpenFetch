@@ -10,9 +10,13 @@
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="JunitXml.TestLogger" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\OpenFetch.AspNetCore\OpenFetch.AspNetCore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\samples\postgresql-rls.sql" Link="postgresql-rls.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

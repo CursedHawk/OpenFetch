@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "id": "aaaaaaaa-1111-0000-0000-000000000103",
+      "name": "Customer A3"
+    },
+    {
+      "id": "aaaaaaaa-1111-0000-0000-000000000102",
+      "name": "Customer A2"
+    }
+  ],
+  "page": {
+    "count": 2,
+    "hasNext": true,
+    "endCursor": "CURSOR"
+  },
+  "meta": {
+    "dataset": "customers",
+    "modelVersion": "MODEL"
+  }
+}

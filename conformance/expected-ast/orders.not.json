@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "select": [
+    "number"
+  ],
+  "where": {
+    "not": {
+      "field": "status",
+      "operator": "eq",
+      "value": "string:open"
+    }
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

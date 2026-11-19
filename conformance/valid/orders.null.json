@@ -1,0 +1,24 @@
+{
+  "select": [
+    "number",
+    "customer.country"
+  ],
+  "where": {
+    "type": "logical",
+    "operator": "or",
+    "children": [
+      {
+        "type": "comparison",
+        "field": "customer.country",
+        "operator": "eq",
+        "value": null
+      },
+      {
+        "type": "comparison",
+        "field": "customer.country",
+        "operator": "ne",
+        "value": null
+      }
+    ]
+  }
+}

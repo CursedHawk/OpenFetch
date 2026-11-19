@@ -1,0 +1,17 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "logical",
+    "operator": "xor",
+    "children": [
+      {
+        "type": "comparison",
+        "field": "id",
+        "operator": "eq",
+        "value": "x"
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "logical",
+    "operator": "and",
+    "children": []
+  }
+}

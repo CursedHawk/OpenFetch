@@ -1,0 +1,12 @@
+{
+  "data": [],
+  "page": {
+    "count": 0,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

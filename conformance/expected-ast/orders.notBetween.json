@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "select": [
+    "number",
+    "total"
+  ],
+  "where": {
+    "field": "total",
+    "operator": "notBetween",
+    "values": [
+      "number:200",
+      "number:700"
+    ]
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

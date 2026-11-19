@@ -1,0 +1,9 @@
+{
+  "select": [
+    "id"
+  ],
+  "page": {
+    "after": "x",
+    "offset": 1
+  }
+}

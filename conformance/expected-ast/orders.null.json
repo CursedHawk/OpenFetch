@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "select": [
+    "number",
+    "customer.country"
+  ],
+  "where": {
+    "logical": "or",
+    "children": [
+      {
+        "field": "customer.country",
+        "operator": "eq",
+        "value": "null:"
+      },
+      {
+        "field": "customer.country",
+        "operator": "ne",
+        "value": "null:"
+      }
+    ]
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

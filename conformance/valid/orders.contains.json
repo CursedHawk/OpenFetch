@@ -1,0 +1,11 @@
+{
+  "select": [
+    "number"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "number",
+    "operator": "contains",
+    "value": "A-00"
+  }
+}

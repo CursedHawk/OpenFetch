@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "select": [
+    "number"
+  ],
+  "where": {
+    "field": "number",
+    "operator": "startsWith",
+    "value": "string:SO_%\\"
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

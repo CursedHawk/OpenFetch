@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "select": [
+    "number",
+    "customer.name",
+    "customer.country"
+  ],
+  "where": {
+    "field": "customer.name",
+    "operator": "eq",
+    "value": "string:Customer A1"
+  },
+  "orderBy": [
+    "customer.name asc"
+  ],
+  "page": {},
+  "distinct": false
+}

@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "select": [
+    "number"
+  ],
+  "where": null,
+  "orderBy": [
+    "number asc"
+  ],
+  "page": {
+    "first": 2,
+    "offset": 2
+  },
+  "distinct": false
+}

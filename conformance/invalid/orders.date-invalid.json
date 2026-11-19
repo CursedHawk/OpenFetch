@@ -1,0 +1,11 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "createdAt",
+    "operator": "gt",
+    "value": "2026-02-30T00:00:00Z"
+  }
+}

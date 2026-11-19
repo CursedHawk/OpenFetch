@@ -1,0 +1,23 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "logical",
+    "operator": "and",
+    "children": [
+      {
+        "type": "comparison",
+        "field": "number",
+        "operator": "eq",
+        "value": "SO-A-0001"
+      },
+      {
+        "type": "comparison",
+        "field": "status",
+        "operator": "ne",
+        "value": "cancelled"
+      }
+    ]
+  }
+}

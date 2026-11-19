@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "select": [
+    "number"
+  ],
+  "where": {
+    "field": "number",
+    "operator": "contains",
+    "value": "string:A-00"
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

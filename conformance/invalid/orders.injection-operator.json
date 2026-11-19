@@ -1,0 +1,11 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "id",
+    "operator": "= 1 OR 1=1 --",
+    "value": "x"
+  }
+}

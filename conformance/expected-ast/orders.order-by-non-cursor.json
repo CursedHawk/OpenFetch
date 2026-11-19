@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "select": [
+    "number",
+    "total"
+  ],
+  "where": null,
+  "orderBy": [
+    "total desc"
+  ],
+  "page": {
+    "first": 2
+  },
+  "distinct": false
+}

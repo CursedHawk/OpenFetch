@@ -1,0 +1,10 @@
+SELECT t0."Number" AS c0, t0."Id" AS c1
+FROM "sales"."Orders" AS t0
+WHERE ((t0."TenantId" = @p0) AND (NOT (t0."IsDeleted" = @p1)))
+  AND (t0."Status" = ANY(@p2))
+ORDER BY t0."Id" ASC NULLS LAST
+LIMIT @p3
+-- @p0 = Guid aaaaaaaa-0000-0000-0000-000000000001
+-- @p1 = Boolean True
+-- @p2 = Int32[] {Int32 0, Int32 2}
+-- @p3 = Int32 101

@@ -1,0 +1,67 @@
+{
+  "data": [
+    {
+      "number": "SO-A-0001",
+      "customer": {
+        "country": "CZ"
+      }
+    },
+    {
+      "number": "SO-A-0002",
+      "customer": {
+        "country": null
+      }
+    },
+    {
+      "number": "SO-A-0003",
+      "customer": {
+        "country": "CZ"
+      }
+    },
+    {
+      "number": "SO-A-0004",
+      "customer": {
+        "country": "CZ"
+      }
+    },
+    {
+      "number": "SO-A-0005",
+      "customer": {
+        "country": null
+      }
+    },
+    {
+      "number": "SO-A-0006",
+      "customer": {
+        "country": "CZ"
+      }
+    },
+    {
+      "number": "SO-A-0007",
+      "customer": {
+        "country": "CZ"
+      }
+    },
+    {
+      "number": "SO-A-0008",
+      "customer": {
+        "country": null
+      }
+    },
+    {
+      "number": "SO-A-0009",
+      "customer": {
+        "country": "CZ"
+      }
+    }
+  ],
+  "page": {
+    "count": 9,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

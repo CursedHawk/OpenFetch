@@ -1,0 +1,13 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "total",
+    "operator": "lt",
+    "compareTo": {
+      "field": "total"
+    }
+  }
+}

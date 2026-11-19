@@ -1,0 +1,14 @@
+{
+  "select": [
+    "id"
+  ],
+  "orderBy": [
+    {
+      "field": "id"
+    },
+    {
+      "field": "id",
+      "direction": "desc"
+    }
+  ]
+}

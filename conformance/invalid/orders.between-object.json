@@ -1,0 +1,16 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "total",
+    "operator": "between",
+    "value": [
+      1,
+      {
+        "a": 1
+      }
+    ]
+  }
+}

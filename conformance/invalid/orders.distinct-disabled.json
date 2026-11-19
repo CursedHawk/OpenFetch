@@ -1,0 +1,6 @@
+{
+  "select": [
+    "status"
+  ],
+  "distinct": true
+}

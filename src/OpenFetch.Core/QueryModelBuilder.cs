@@ -36,8 +36,13 @@ public static partial class QueryModelBuilder
             if (config is not null) errors.AddRange(config.Conflicts);
             var dataset = BuildDataset(mapping, config, options, errors);
             if (dataset is null) continue;
-            if (mapping.HasQueryFilter)
-                warnings?.Add($"Dataset '{dataset.PublicName}' has an EF global query filter; OpenFetch SQL does not apply it. Use a row policy.");
+            // EF global query filters often carry tenant isolation; direct SQL does not apply them (§8). Fail closed unless the
+            // dataset has its own row policy or the gap is explicitly acknowledged.
+            if (mapping.HasQueryFilter && config?.RowPolicies.Count is null or 0 && config?.QueryFilterAcknowledged != true)
+                errors.Add($"Dataset '{dataset.PublicName}' has an EF global query filter that OpenFetch SQL does not apply. " +
+                           "Add ApplyRowPolicy(...) or call AcknowledgeEfQueryFilterNotApplied().");
+            else if (mapping.HasQueryFilter)
+                warnings?.Add($"Dataset '{dataset.PublicName}' has an EF global query filter; OpenFetch relies on its row policies instead.");
             built.Add((mapping, config, dataset));
         }
 

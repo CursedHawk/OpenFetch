@@ -16,6 +16,9 @@ public sealed class OpenFetchOptions
     /// (camelCase name) unless hidden. Off by default (§7.1).</summary>
     public bool ExposeColumnsByConvention { get; set; }
 
+    /// <summary>Protected diagnostic mode: SQL text (never parameter values) is logged at Debug level (§25).</summary>
+    public bool DiagnosticMode { get; set; }
+
     /// <summary>Set by a provider package, e.g. <c>UsePostgreSql()</c>.</summary>
     public IQueryCompiler? Compiler { get; set; }
 
@@ -81,7 +84,7 @@ internal static class Deny
 internal sealed class DatasetConfig
 {
     public string? Name;
-    public bool Exposed, Hidden, Deprecated;
+    public bool Exposed, Hidden, Deprecated, QueryFilterAcknowledged;
     public string? Description, DeprecationMessage;
     public int? DefaultPageSize, MaximumPageSize, MaximumRelationshipDepth;
     public DatasetCapabilities Enabled, Disabled;
@@ -139,6 +142,9 @@ public sealed class DatasetBuilder<T> where T : class
     public DatasetBuilder<T> Enable(DatasetCapabilities capabilities) { _c.Enabled |= capabilities; return this; }
     /// <summary>Disable wins over Enable regardless of order.</summary>
     public DatasetBuilder<T> Disable(DatasetCapabilities capabilities) { _c.Disabled |= capabilities; return this; }
+
+    /// <summary>Confirms that the entity's EF global query filter is intentionally not applied (OpenFetch SQL bypasses it).</summary>
+    public DatasetBuilder<T> AcknowledgeEfQueryFilterNotApplied() { _c.QueryFilterAcknowledged = true; return this; }
 
     /// <summary>Trusted predicate using only the entity, e.g. <c>o =&gt; !o.IsDeleted</c>.</summary>
     public DatasetBuilder<T> ApplyRowPolicy(Expression<Func<T, bool>> predicate) { _c.RowPolicies.Add(predicate); return this; }

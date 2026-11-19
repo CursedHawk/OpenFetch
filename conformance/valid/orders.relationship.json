@@ -1,0 +1,18 @@
+{
+  "select": [
+    "number",
+    "customer.name",
+    "customer.country"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "customer.name",
+    "operator": "eq",
+    "value": "Customer A1"
+  },
+  "orderBy": [
+    {
+      "field": "customer.name"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "select": [
+    "name",
+    "country"
+  ],
+  "where": {
+    "logical": "and",
+    "children": [
+      {
+        "field": "name",
+        "operator": "endsWith",
+        "value": "string:1"
+      },
+      {
+        "field": "country",
+        "operator": "notIn",
+        "values": [
+          "string:DE",
+          "string:AT"
+        ]
+      }
+    ]
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

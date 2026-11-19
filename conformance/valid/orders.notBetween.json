@@ -1,0 +1,15 @@
+{
+  "select": [
+    "number",
+    "total"
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "total",
+    "operator": "notBetween",
+    "value": [
+      200,
+      700
+    ]
+  }
+}

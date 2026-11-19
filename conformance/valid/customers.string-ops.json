@@ -1,0 +1,27 @@
+{
+  "select": [
+    "name",
+    "country"
+  ],
+  "where": {
+    "type": "logical",
+    "operator": "and",
+    "children": [
+      {
+        "type": "comparison",
+        "field": "name",
+        "operator": "endsWith",
+        "value": "1"
+      },
+      {
+        "type": "comparison",
+        "field": "country",
+        "operator": "notIn",
+        "value": [
+          "DE",
+          "AT"
+        ]
+      }
+    ]
+  }
+}

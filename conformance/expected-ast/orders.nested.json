@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "select": [
+    "number"
+  ],
+  "where": {
+    "logical": "and",
+    "children": [
+      {
+        "field": "total",
+        "operator": "gt",
+        "value": "number:0"
+      },
+      {
+        "logical": "or",
+        "children": [
+          {
+            "field": "status",
+            "operator": "eq",
+            "value": "string:open"
+          },
+          {
+            "not": {
+              "field": "number",
+              "operator": "startsWith",
+              "value": "string:X"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

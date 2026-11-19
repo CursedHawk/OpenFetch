@@ -1,0 +1,34 @@
+{
+  "data": [
+    {
+      "number": "SO-A-0003",
+      "customer": {
+        "name": "Customer A1",
+        "country": "CZ"
+      }
+    },
+    {
+      "number": "SO-A-0006",
+      "customer": {
+        "name": "Customer A1",
+        "country": "CZ"
+      }
+    },
+    {
+      "number": "SO-A-0009",
+      "customer": {
+        "name": "Customer A1",
+        "country": "CZ"
+      }
+    }
+  ],
+  "page": {
+    "count": 3,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

@@ -1,0 +1,480 @@
+using System.Buffers;
+using System.Collections.Concurrent;
+using System.Collections.Immutable;
+using System.Data;
+using System.Data.Common;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
+namespace OpenFetch;
+
+/// <summary>Authenticated, opaque cursor encryption (D4: IDataProtector in ASP.NET Core). Unprotect throws on tampering.</summary>
+public interface ICursorProtector
+{
+    string Protect(byte[] payload);
+    byte[] Unprotect(string token);
+}
+
+public sealed record PreparedQuery(ResolvedQuery Query, QueryPlan Plan, string ShapeHash, string Scope, int Complexity);
+
+/// <summary>
+/// The §5 pipeline: parse -> resolve/validate -> authorize -> row-policy injection -> complexity -> shape key -> compile -> execute.
+/// Stateless and thread-safe; one instance per application.
+/// </summary>
+public sealed class QueryEngine(
+    QueryModel model,
+    IQueryCompiler compiler,
+    ICursorProtector cursors,
+    SecurityOptions security,
+    IEnumerable<IRowPolicyProvider>? policyProviders = null,
+    TimeProvider? time = null)
+{
+    public static readonly ActivitySource ActivitySource = new("OpenFetch");
+    private static readonly Meter Meter = new("OpenFetch");
+    private static readonly Histogram<double> Duration = Meter.CreateHistogram<double>("openfetch.query.duration", "ms");
+    private static readonly Counter<long> Rows = Meter.CreateCounter<long>("openfetch.query.rows");
+    private static readonly Histogram<long> Bytes = Meter.CreateHistogram<long>("openfetch.response.bytes", "By");
+    private static readonly Counter<long> Failures = Meter.CreateCounter<long>("openfetch.query.errors");
+
+    private readonly ImmutableArray<IRowPolicyProvider> _providers = [.. policyProviders ?? []];
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+
+    public QueryModel Model => model;
+    public IQueryCompiler Compiler => compiler;
+
+    public async ValueTask<PreparedQuery> PrepareAsync(string dataset, ReadOnlyMemory<byte> body, QuerySecurityContext context, CancellationToken ct)
+    {
+        // Unknown and inaccessible datasets produce the identical error (§16.2).
+        if (!model.Datasets.TryGetValue(dataset, out var root) || !await context.IsAuthorizedAsync(root.Policies, ct))
+            throw QueryErrors.UnknownDataset(dataset);
+
+        var doc = QueryParser.Parse(body, model.Limits);
+        var allowed = await AllowedPoliciesAsync(context, ReachablePolicies(root), ct);
+        var resolved = new QueryResolver(model, root, p => p.All(allowed.Contains)).Resolve(doc);
+        var secured = await SecureAsync(resolved, context, ct);
+
+        var complexity = Complexity.Score(secured);
+        if (complexity > model.Limits.MaximumComplexity)
+            throw QueryErrors.TooComplex($"Query complexity {complexity} exceeds the maximum of {model.Limits.MaximumComplexity}.")
+                .With("complexity", complexity).With("maxComplexity", model.Limits.MaximumComplexity);
+
+        var shape = Keys.Shape(secured, compiler, model.Version);
+        var scope = Keys.Scope(context, secured);
+        if (doc.Page.After is { } after) secured = secured with { After = DecodeCursor(after, secured, shape, scope) };
+
+        var plan = compiler.Compile(secured);
+        return new PreparedQuery(secured, plan, shape, scope, complexity);
+    }
+
+    /// <summary>Evaluates each named policy once; result is the set the caller satisfies.</summary>
+    public static async ValueTask<HashSet<string>> AllowedPoliciesAsync(QuerySecurityContext context, IEnumerable<string> policies, CancellationToken ct)
+    {
+        var allowed = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var p in policies.Distinct())
+            if (await context.IsAuthorizedAsync(p, ct)) allowed.Add(p);
+        return allowed;
+    }
+
+    private IEnumerable<string> ReachablePolicies(DatasetDescriptor root)
+    {
+        var seen = new HashSet<string>();
+        var queue = new Queue<DatasetDescriptor>([root]);
+        while (queue.TryDequeue(out var d))
+        {
+            if (!seen.Add(d.PublicName)) continue;
+            foreach (var p in d.Policies.Concat(d.Columns.Values.SelectMany(c => c.Policies)).Concat(d.Relationships.Values.SelectMany(r => r.Policies)))
+                yield return p;
+            foreach (var r in d.Relationships.Values) queue.Enqueue(model.Datasets[r.TargetDataset]);
+        }
+    }
+
+    /// <summary>Injects trusted predicates (§16.4): root policy outside the client filter, joined-dataset policies in ON clauses.</summary>
+    private async ValueTask<ResolvedQuery> SecureAsync(ResolvedQuery q, QuerySecurityContext context, CancellationToken ct)
+    {
+        var joins = ImmutableArray.CreateBuilder<ResolvedJoin>();
+        foreach (var j in q.Joins) joins.Add(j with { Policy = await PolicyAsync(j.Target, j.Alias, context, ct) });
+        return q with { Policy = await PolicyAsync(q.Dataset, "t0", context, ct), Joins = joins.ToImmutable() };
+    }
+
+    private async ValueTask<ResolvedFilter?> PolicyAsync(DatasetDescriptor dataset, string alias, QuerySecurityContext context, CancellationToken ct)
+    {
+        var nodes = new List<FilterNode>();
+        foreach (var policy in dataset.RowPolicies)
+        {
+            var instance = policy.ContextType == typeof(object) ? context
+                : policy.ContextType == typeof(QuerySecurityContext) ? context
+                : context.Services.GetService(policy.ContextType)
+                  ?? throw new InvalidOperationException($"Row-policy context {policy.ContextType.Name} is not registered in DI.");
+            nodes.Add(policy.Build(instance));
+        }
+        foreach (var provider in _providers)
+            if (await provider.BuildPolicyAsync(context, dataset, ct) is { } node) nodes.Add(node);
+        return nodes.Count switch
+        {
+            0 => null,
+            1 => QueryResolver.Trusted(nodes[0], dataset, alias),
+            _ => new ResolvedLogical(LogicalOperator.And, [.. nodes.Select(n => QueryResolver.Trusted(n, dataset, alias))]),
+        };
+    }
+
+    // ---- Cursors (§20.1): bind ordering values, shape, model version, expiry and caller/policy scope. ----
+
+    private string EncodeCursor(PreparedQuery p, object?[] row, ImmutableArray<int> orderIndexes)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var w = new Utf8JsonWriter(buffer))
+        {
+            w.WriteStartObject();
+            w.WriteString("m", model.Version);
+            w.WriteString("s", p.ShapeHash);
+            w.WriteString("c", p.Scope);
+            w.WriteNumber("x", _time.GetUtcNow().Add(model.Limits.CursorLifetime).ToUnixTimeSeconds());
+            w.WriteStartArray("k");
+            for (var i = 0; i < orderIndexes.Length; i++) ValueWriter.Write(w, row[orderIndexes[i]], p.Query.OrderBy[i].Field.Column);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return cursors.Protect(buffer.WrittenSpan.ToArray());
+    }
+
+    private ImmutableArray<object?> DecodeCursor(string token, ResolvedQuery q, string shape, string scope)
+    {
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(cursors.Unprotect(token)); }
+        catch (Exception ex) when (ex is CryptographicException or FormatException or JsonException or ArgumentException) { throw QueryErrors.InvalidCursor(); }
+        using (doc)
+        {
+            try
+            {
+                var r = doc.RootElement;
+                if (DateTimeOffset.FromUnixTimeSeconds(r.GetProperty("x").GetInt64()) < _time.GetUtcNow()) throw QueryErrors.InvalidCursor();
+                if (r.GetProperty("m").GetString() != model.Version || r.GetProperty("s").GetString() != shape || r.GetProperty("c").GetString() != scope)
+                    throw QueryErrors.CursorScopeMismatch();
+                var values = r.GetProperty("k").EnumerateArray().ToArray();
+                if (values.Length != q.OrderBy.Length) throw QueryErrors.InvalidCursor();
+                return [.. values.Select((v, i) => (object?)ValueCoercion.Coerce(ValueCoercion.FromJson(v), q.OrderBy[i].Field.Column, "/page/after"))];
+            }
+            catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or FormatException) { throw QueryErrors.InvalidCursor(); }
+            catch (OpenFetchException ex) when (ex.Code == "invalid_value_type") { throw QueryErrors.InvalidCursor(); }
+        }
+    }
+
+    // ---- Execution (§19.3) ----
+
+    /// <summary>
+    /// Runs the plan in one read-only transaction on one connection: session setup (RLS settings) then the query (§16.5).
+    /// The response is buffered up to MaximumResponseBytes so a limit breach still yields a clean error status.
+    /// </summary>
+    // ponytail: buffer-then-flush caps memory at MaximumResponseBytes per request; true streaming needs a mid-stream abort protocol.
+    public async Task<int> ExecuteAsync(DbConnection connection, PreparedQuery prepared, QuerySecurityContext context, IBufferWriter<byte> output, CancellationToken ct)
+    {
+        using var activity = ActivitySource.StartActivity("openfetch.query");
+        activity?.SetTag("openfetch.dataset", prepared.Query.Dataset.PublicName);
+        activity?.SetTag("openfetch.shape", prepared.ShapeHash);
+        activity?.SetTag("openfetch.model_version", model.Version);
+        activity?.SetTag("openfetch.compiler", $"{compiler.ProviderName}/{compiler.CompilerVersion}");
+        activity?.SetTag("openfetch.complexity", prepared.Complexity);
+        var tags = new TagList { { "openfetch.dataset", prepared.Query.Dataset.PublicName } };
+        var started = Stopwatch.GetTimestamp();
+        var opened = connection.State != ConnectionState.Open;
+        try
+        {
+            if (opened) await connection.OpenAsync(ct);
+            await using var tx = await connection.BeginTransactionAsync(ct);
+
+            var settings = security.DatabaseRowLevelSecurity ? security.DatabaseSessionValues!(context).ToList() : [];
+            await using (var setup = Command(connection, tx, compiler.CompileSessionSetup(settings)))
+                await setup.ExecuteNonQueryAsync(ct);
+
+            int rows;
+            await using (var command = Command(connection, tx, prepared.Plan.Command))
+            await using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct))
+                rows = await WriteAsync(reader, prepared, output, ct);
+
+            await tx.CommitAsync(ct);
+            Rows.Add(rows, tags);
+            activity?.SetTag("openfetch.rows", rows);
+            return rows;
+        }
+        catch (Exception ex) when (ex is DbException or InvalidOperationException && !ct.IsCancellationRequested)
+        {
+            var timeout = Chain(ex).Any(e => e is TimeoutException) || ex is DbException { SqlState: "57014" };
+            Failures.Add(1, [.. tags, new("openfetch.error", timeout ? "query_timeout" : "execution_failed")]);
+            activity?.SetStatus(ActivityStatusCode.Error);
+            throw timeout ? QueryErrors.Timeout() : new QueryExecutionException(QueryErrors.ExecutionFailed(), ex);
+        }
+        finally
+        {
+            if (opened) await connection.CloseAsync();
+            Duration.Record(Stopwatch.GetElapsedTime(started).TotalMilliseconds, tags);
+        }
+    }
+
+    private static IEnumerable<Exception> Chain(Exception? e) { for (; e is not null; e = e.InnerException) yield return e; }
+
+    private DbCommand Command(DbConnection connection, DbTransaction tx, CompiledCommand compiled)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = compiled.CommandText;
+        command.CommandTimeout = (int)Math.Ceiling(model.Limits.CommandTimeout.TotalSeconds);
+        foreach (var p in compiled.Parameters)
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = p.Name;
+            parameter.Value = p.Value ?? DBNull.Value;
+            command.Parameters.Add(parameter);
+        }
+        return command;
+    }
+
+    private async Task<int> WriteAsync(DbDataReader reader, PreparedQuery p, IBufferWriter<byte> output, CancellationToken ct)
+    {
+        var columns = p.Plan.ResultColumns;
+        var tree = OutputTree.Build(columns);
+        var orderIndexes = p.Query.CursorCapable
+            ? p.Query.OrderBy.Select(o => columns.ToList().FindIndex(c => c.Role != ResultRole.JoinKey && ResultColumn.Same(c.Field, o.Field))).ToImmutableArray()
+            : [];
+        var max = model.Limits.MaximumResponseBytes;
+        var counter = new CountingWriter(output);
+        using var w = new Utf8JsonWriter(counter);
+        var row = new object?[columns.Length];
+        object?[]? last = null;
+        var count = 0;
+        var hasNext = false;
+
+        w.WriteStartObject();
+        w.WriteStartArray("data");
+        while (await reader.ReadAsync(ct))
+        {
+            if (count == p.Query.PageSize) { hasNext = true; break; }
+            for (var i = 0; i < columns.Length; i++) row[i] = ValueReader.Read(reader, i, columns[i].Field.Column);
+            tree.Write(w, row);
+            count++;
+            last = (object?[])row.Clone();
+            if (w.BytesCommitted + w.BytesPending > max) throw QueryErrors.ResponseTooLarge(max);
+        }
+        w.WriteEndArray();
+        w.WriteStartObject("page");
+        w.WriteNumber("count", count);
+        w.WriteBoolean("hasNext", hasNext);
+        if (p.Query.CursorCapable && last is not null && hasNext) w.WriteString("endCursor", EncodeCursor(p, last, orderIndexes));
+        else w.WriteNull("endCursor");
+        w.WriteEndObject();
+        w.WriteStartObject("meta");
+        w.WriteString("dataset", p.Query.Dataset.PublicName);
+        w.WriteString("modelVersion", model.Version);
+        w.WriteEndObject();
+        w.WriteEndObject();
+        await w.FlushAsync(ct);
+        if (counter.Written > max) throw QueryErrors.ResponseTooLarge(max);
+        Bytes.Record(counter.Written, new TagList { { "openfetch.dataset", p.Query.Dataset.PublicName } });
+        return count;
+    }
+
+    private sealed class CountingWriter(IBufferWriter<byte> inner) : IBufferWriter<byte>
+    {
+        public long Written { get; private set; }
+        public void Advance(int count) { Written += count; inner.Advance(count); }
+        public Memory<byte> GetMemory(int sizeHint = 0) => inner.GetMemory(sizeHint);
+        public Span<byte> GetSpan(int sizeHint = 0) => inner.GetSpan(sizeHint);
+    }
+
+    /// <summary>Writes result columns as nested JSON: <c>customer.name</c> becomes <c>{"customer":{"name":...}}</c>.</summary>
+    private sealed class OutputTree
+    {
+        private readonly List<(string Name, int Index, OutputTree? Child)> _items = [];
+        private int _keyIndex = -1;
+
+        public static OutputTree Build(ImmutableArray<ResultColumn> columns)
+        {
+            var root = new OutputTree();
+            for (var i = 0; i < columns.Length; i++)
+            {
+                var c = columns[i];
+                if (c.Role == ResultRole.Cursor) continue;
+                var segments = c.Field.Path.Split('.');
+                var node = root;
+                var depth = c.Role == ResultRole.JoinKey ? segments.Length : segments.Length - 1;
+                for (var s = 0; s < depth; s++)
+                {
+                    var existing = node._items.FirstOrDefault(x => x.Name == segments[s] && x.Child is not null);
+                    if (existing.Child is null) node._items.Add(existing = (segments[s], -1, new OutputTree()));
+                    node = existing.Child!;
+                }
+                if (c.Role == ResultRole.JoinKey) node._keyIndex = i;
+                else node._items.Add((segments[^1], i, null));
+            }
+            return root;
+        }
+
+        public void Write(Utf8JsonWriter w, object?[] row)
+        {
+            w.WriteStartObject();
+            WriteBody(w, row);
+            w.WriteEndObject();
+        }
+
+        private void WriteBody(Utf8JsonWriter w, object?[] row)
+        {
+            foreach (var (name, index, child) in _items)
+            {
+                w.WritePropertyName(name);
+                if (child is null) ValueWriter.Write(w, row[index], null);
+                else if (child._keyIndex >= 0 && row[child._keyIndex] is null) w.WriteNullValue();
+                else { w.WriteStartObject(); child.WriteBody(w, row); w.WriteEndObject(); }
+            }
+        }
+    }
+}
+
+/// <summary>Wraps a provider failure as a public 500 while keeping the original for server-side logs only.</summary>
+public sealed class QueryExecutionException(OpenFetchException error, Exception inner) : Exception(error.Message, inner)
+{
+    public OpenFetchException Error { get; } = error;
+}
+
+/// <summary>Reads provider values with typed getters, then applies the EF value converter (enums, custom conversions).</summary>
+internal static class ValueReader
+{
+    private static readonly ConcurrentDictionary<Type, Func<DbDataReader, int, object>> Getters = new();
+
+    public static object? Read(DbDataReader reader, int ordinal, ColumnDescriptor column)
+    {
+        if (reader.IsDBNull(ordinal)) return null;
+        var getter = Getters.GetOrAdd(column.Physical.ProviderClrType, static t =>
+        {
+            var method = typeof(ValueReader).GetMethod(nameof(Get), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.MakeGenericMethod(t);
+            return method.CreateDelegate<Func<DbDataReader, int, object>>();
+        });
+        var value = getter(reader, ordinal);
+        return column.Physical.FromProvider is { } convert ? convert(value) : value;
+    }
+
+    private static object Get<T>(DbDataReader reader, int ordinal) => reader.GetFieldValue<T>(ordinal)!;
+}
+
+/// <summary>Writes CLR values with the public JSON profile (RFC 3339 UTC date-times, camelCase enums, exact decimals).</summary>
+public static class ValueWriter
+{
+    public static void Write(Utf8JsonWriter w, object? value, ColumnDescriptor? column)
+    {
+        switch (value)
+        {
+            case null: w.WriteNullValue(); break;
+            case string s: w.WriteStringValue(s); break;
+            case bool b: w.WriteBooleanValue(b); break;
+            case decimal d: w.WriteNumberValue(d); break;
+            case double d when double.IsFinite(d): w.WriteNumberValue(d); break;
+            case float f when float.IsFinite(f): w.WriteNumberValue(f); break;
+            case double or float: w.WriteStringValue(Convert.ToString(value, CultureInfo.InvariantCulture)); break;
+            case Guid g: w.WriteStringValue(g); break;
+            case DateTimeOffset dto: w.WriteStringValue(Rfc3339(dto.UtcDateTime)); break;
+            case DateTime dt: w.WriteStringValue(Rfc3339(dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime() : dt)); break;
+            case DateOnly d: w.WriteStringValue(d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)); break;
+            case TimeOnly t: w.WriteStringValue(t.ToString("HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture).TrimEnd('.')); break;
+            case Enum e: w.WriteStringValue(Enum.GetName(e.GetType(), e) is { } n ? JsonNamingPolicy.CamelCase.ConvertName(n) : Convert.ToInt64(e, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)); break;
+            case IConvertible c when value.GetType().IsPrimitive: w.WriteNumberValue(c.ToInt64(CultureInfo.InvariantCulture)); break;
+            default: throw new InvalidOperationException($"No JSON mapping for {value.GetType().Name}.");
+        }
+    }
+
+    private static string Rfc3339(DateTime utc) => utc.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture).TrimEnd('.') + "Z";
+}
+
+/// <summary>Complexity scoring v1 (§22, docs/complexity-v1.md). Runs on the secured query, so policy conditions count too.</summary>
+public static class Complexity
+{
+    public const int Version = 1;
+
+    public static int Score(ResolvedQuery q)
+    {
+        var score = 1 + q.Select.Length + q.Joins.Length * 15 + (q.Distinct ? 20 : 0);
+        score += Filter(q.Where, client: true) + Filter(q.Policy, client: false) + q.Joins.Sum(j => Filter(j.Policy, client: false));
+        var tieBreakers = q.Dataset.Key.Length;
+        score += q.OrderBy.Take(q.OrderBy.Length - tieBreakers).Count(o => !o.Field.Column.Indexed) * 30;
+        return score;
+    }
+
+    private static int Filter(ResolvedFilter? f, bool client) => f switch
+    {
+        null => 0,
+        ResolvedLogical l => (l.Operator == LogicalOperator.Or ? 5 : 0) + l.Children.Sum(c => Filter(c, client)),
+        ResolvedNot n => Filter(n.Operand, client),
+        ResolvedComparison c => 2
+            + (c.Operator is QueryOperator.Contains or QueryOperator.EndsWith ? 25 : 0)
+            + (client && !c.Field.Column.Indexed ? 20 : 0),
+        _ => 0,
+    };
+}
+
+/// <summary>Shape and scope keys. Shape = structure without values (cursor binding, telemetry, v0.2 plan cache).</summary>
+internal static class Keys
+{
+    public static string Shape(ResolvedQuery q, IQueryCompiler compiler, string modelVersion)
+    {
+        var sb = new StringBuilder();
+        sb.Append(QueryParser.Version).Append('|').Append(compiler.ProviderName).Append('/').Append(compiler.CompilerVersion).Append('|').Append(modelVersion)
+          .Append('|').Append(q.Dataset.PublicName).Append('|').Append(q.Distinct);
+        foreach (var j in q.Joins) sb.Append("|j:").Append(j.Path);
+        foreach (var f in q.Select) sb.Append("|s:").Append(f.Path);
+        sb.Append("|w:"); Filter(sb, q.Where);
+        sb.Append("|p:"); Filter(sb, q.Policy);
+        foreach (var j in q.Joins) { sb.Append("|jp:"); Filter(sb, j.Policy); }
+        foreach (var o in q.OrderBy) sb.Append("|o:").Append(o.Field.Alias).Append('.').Append(o.Field.Column.PropertyName).Append(o.Direction == SortDirection.Ascending ? '+' : '-');
+        return Hash(sb.ToString());
+    }
+
+    /// <summary>Caller scope: identity, tenant, and the concrete policy values. A cursor from another tenant or policy profile is rejected.</summary>
+    public static string Scope(QuerySecurityContext ctx, ResolvedQuery q)
+    {
+        var sb = new StringBuilder();
+        sb.Append(ctx.TenantId).Append('|').Append(ctx.User.Identity?.Name).Append('|')
+          .Append(ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
+        Values(sb, q.Policy);
+        foreach (var j in q.Joins) Values(sb, j.Policy);
+        return Hash(sb.ToString());
+    }
+
+    private static void Filter(StringBuilder sb, ResolvedFilter? f)
+    {
+        switch (f)
+        {
+            case null: sb.Append('-'); break;
+            case ResolvedLogical l:
+                sb.Append(l.Operator).Append('(');
+                foreach (var c in l.Children) { Filter(sb, c); sb.Append(','); }
+                sb.Append(')');
+                break;
+            case ResolvedNot n: sb.Append("not("); Filter(sb, n.Operand); sb.Append(')'); break;
+            case ResolvedComparison c:
+                sb.Append(c.Field.Alias).Append('.').Append(c.Field.Column.PropertyName).Append(' ').Append(c.Operator).Append(' ')
+                  .Append(c.Right switch
+                  {
+                      ResolvedConstant { Value: null } => "null",
+                      ResolvedConstant => "v",
+                      ResolvedList => "list",
+                      ResolvedFieldOperand o => o.Field.Alias + "." + o.Field.Column.PropertyName,
+                      _ => "?",
+                  });
+                break;
+        }
+    }
+
+    private static void Values(StringBuilder sb, ResolvedFilter? f)
+    {
+        switch (f)
+        {
+            case ResolvedLogical l: foreach (var c in l.Children) Values(sb, c); break;
+            case ResolvedNot n: Values(sb, n.Operand); break;
+            case ResolvedComparison { Right: ResolvedConstant k }: sb.Append('|').Append(Convert.ToString(k.Value, CultureInfo.InvariantCulture)); break;
+            case ResolvedComparison { Right: ResolvedList l }: foreach (var v in l.Values) sb.Append('|').Append(Convert.ToString(v, CultureInfo.InvariantCulture)); break;
+        }
+    }
+
+    private static string Hash(string s) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(s)))[..16];
+}

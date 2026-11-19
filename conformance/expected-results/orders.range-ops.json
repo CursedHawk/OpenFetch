@@ -1,0 +1,41 @@
+{
+  "data": [
+    {
+      "number": "SO-A-0002",
+      "total": 200.50
+    },
+    {
+      "number": "SO-A-0003",
+      "total": 300.50
+    },
+    {
+      "number": "SO-A-0004",
+      "total": 400.50
+    },
+    {
+      "number": "SO-A-0005",
+      "total": 500.50
+    },
+    {
+      "number": "SO-A-0006",
+      "total": 600.50
+    },
+    {
+      "number": "SO-A-0007",
+      "total": 700.50
+    },
+    {
+      "number": "SO-A-0008",
+      "total": 800.50
+    }
+  ],
+  "page": {
+    "count": 7,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

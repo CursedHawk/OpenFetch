@@ -1,0 +1,29 @@
+{
+  "data": [
+    {
+      "number": "SO-A-0001",
+      "total": 100.50
+    },
+    {
+      "number": "SO-A-0007",
+      "total": 700.50
+    },
+    {
+      "number": "SO-A-0008",
+      "total": 800.50
+    },
+    {
+      "number": "SO-A-0009",
+      "total": 900.50
+    }
+  ],
+  "page": {
+    "count": 4,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

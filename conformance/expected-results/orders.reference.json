@@ -1,0 +1,34 @@
+{
+  "data": [
+    {
+      "id": "aaaaaaaa-1111-0000-0000-000000000009",
+      "number": "SO-A-0009",
+      "status": "processing",
+      "total": 900.50,
+      "createdAt": "2026-01-09T12:00:00Z"
+    },
+    {
+      "id": "aaaaaaaa-1111-0000-0000-000000000008",
+      "number": "SO-A-0008",
+      "status": "open",
+      "total": 800.50,
+      "createdAt": "2026-01-08T12:00:00Z"
+    },
+    {
+      "id": "aaaaaaaa-1111-0000-0000-000000000005",
+      "number": "SO-A-0005",
+      "status": "processing",
+      "total": 500.50,
+      "createdAt": "2026-01-05T12:00:00Z"
+    }
+  ],
+  "page": {
+    "count": 3,
+    "hasNext": true,
+    "endCursor": "CURSOR"
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

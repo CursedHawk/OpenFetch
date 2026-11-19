@@ -1,0 +1,17 @@
+{
+  "data": [
+    {
+      "name": "Customer A1",
+      "country": "CZ"
+    }
+  ],
+  "page": {
+    "count": 1,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "customers",
+    "modelVersion": "MODEL"
+  }
+}
