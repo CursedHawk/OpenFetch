@@ -37,6 +37,8 @@ public sealed record DatasetDescriptor
     /// <summary>Primary key columns: the cursor tie-breaker.</summary>
     public required ImmutableArray<ColumnDescriptor> Key { get; init; }
     public ImmutableArray<RowPolicy> RowPolicies { get; init; } = [];
+    /// <summary>Named fixed projections (§18.5): name -> selected field paths, served as <c>POST /query/{dataset}/{name}</c>.</summary>
+    public FrozenDictionary<string, ImmutableArray<string>> Projections { get; init; } = FrozenDictionary<string, ImmutableArray<string>>.Empty;
 
     /// <summary>Internal physical identifiers; never serialized into schema, capabilities, OpenAPI or errors.</summary>
     public required PhysicalTable Table { get; init; }

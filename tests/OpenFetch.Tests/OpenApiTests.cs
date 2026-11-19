@@ -57,6 +57,10 @@ public class OpenApiTests(PostgresFixture pg)
         var schemas = doc["components"]!["schemas"]!;
         Assert.Equal(["comparison", "logical", "not"], schemas["OrdersFilter"]!["discriminator"]!["mapping"]!.AsObject().Select(p => p.Key));
         Assert.Equal("logical", (string)schemas["OrdersLogicalFilter"]!["properties"]!["type"]!["const"]!);
+        var summary = doc["paths"]!["/query/orders/summary"]!["post"]!;
+        Assert.Equal("queryOrdersSummary", (string)summary["operationId"]!);
+        Assert.Null(schemas_(doc)["OrdersSummaryQuery"]!["properties"]!["select"]);
+        Assert.Equal(["customer", "id", "number", "status"], schemas_(doc)["OrdersSummaryRow"]!["required"]!.AsArray().Select(v => (string)v!).Order());
         var selectable = schemas["OrdersSelectableField"]!["enum"]!.AsArray().Select(v => (string)v!).ToList();
         Assert.Contains("customer.name", selectable);
         Assert.Equal(["eq", "ne", "in"], schemas["OrdersRow"]!["properties"]!["status"]!["x-openfetch-operators"]!.AsArray().Select(v => (string)v!));
@@ -69,6 +73,8 @@ public class OpenApiTests(PostgresFixture pg)
             Assert.DoesNotContain(hidden, text);
     }
 
+    private static JsonNode schemas_(JsonNode doc) => doc["components"]!["schemas"]!;
+
     [Fact]
     public async Task Examples_are_valid_queries()
     {
@@ -79,6 +85,8 @@ public class OpenApiTests(PostgresFixture pg)
             var example = doc["paths"]!["/query/" + dataset]!["post"]!["requestBody"]!["content"]!["application/json"]!["example"]!;
             await engine.PrepareAsync(dataset, example.ToJsonString(), TestEngine.Context(SeedData.TenantA, []));
         }
+        var projectionExample = doc["paths"]!["/query/orders/summary"]!["post"]!["requestBody"]!["content"]!["application/json"]!["example"]!;
+        await engine.PrepareAsync("orders", System.Text.Encoding.UTF8.GetBytes(projectionExample.ToJsonString()), TestEngine.Context(SeedData.TenantA, []), Ct, "summary");
     }
 
     [Fact]
@@ -102,6 +110,13 @@ public class OpenApiTests(PostgresFixture pg)
         Assert.NotNull(fin["components"]!["schemas"]!["OrdersRow"]!["properties"]!["total"]);
         Assert.NotNull(fin["paths"]!["/query/customers"]);
         Assert.Equal(["Orders.FinancialData", "Orders.Read"], fin["x-openfetch-profile"]!["policies"]!.AsArray().Select(v => (string)v!));
+
+        // Operation-level relationship metadata is filtered by the profile too.
+        var ops = pub["paths"]!["/query/orders"]!["post"]!;
+        Assert.Empty(ops["x-openfetch-relationships"]!.AsArray());
+        Assert.False((bool)ops["x-openfetch-capabilities"]!["relationships"]!);
+        Assert.Null(pub["paths"]!["/query/orders/summary"]); // projection uses customer.name, not visible publicly
+        Assert.NotNull(fin["paths"]!["/query/orders/summary"]);
     }
 
     [Fact]

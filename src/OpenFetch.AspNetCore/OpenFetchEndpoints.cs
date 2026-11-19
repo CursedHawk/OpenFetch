@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace OpenFetch.AspNetCore;
 
 /// <summary>Marks a per-dataset query endpoint; the OpenAPI transformers key off this.</summary>
-public sealed record OpenFetchDatasetMetadata(string Dataset);
+public sealed record OpenFetchDatasetMetadata(string Dataset, string? Projection = null);
 
 public static class OpenFetchEndpoints
 {
@@ -26,11 +26,16 @@ public static class OpenFetchEndpoints
         foreach (var dataset in engine.Model.Datasets.Values.OrderBy(d => d.PublicName, StringComparer.Ordinal))
         {
             var name = dataset.PublicName;
-            group.MapPost("/" + name, (Func<HttpContext, Task<IResult>>)(http => QueryAsync(http, name)))
+            group.MapPost("/" + name, (Func<HttpContext, Task<IResult>>)(http => QueryAsync(http, name, null)))
                 .WithName(OperationId(name))
                 .WithMetadata(new OpenFetchDatasetMetadata(name));
+            foreach (var projection in dataset.Projections.Keys.Order(StringComparer.Ordinal))
+                group.MapPost($"/{name}/{projection}", (Func<HttpContext, Task<IResult>>)(http => QueryAsync(http, name, projection)))
+                    .WithName(OperationId(name, projection))
+                    .WithMetadata(new OpenFetchDatasetMetadata(name, projection));
         }
-        group.MapPost("/{dataset}", (HttpContext http, string dataset) => QueryAsync(http, dataset)).ExcludeFromDescription();
+        group.MapPost("/{dataset}", (HttpContext http, string dataset) => QueryAsync(http, dataset, null)).ExcludeFromDescription();
+        group.MapPost("/{dataset}/{projection}", (HttpContext http, string dataset, string projection) => QueryAsync(http, dataset, projection)).ExcludeFromDescription();
         if (app.ServiceProvider.GetService<OpenFetchRateLimitingMarker>() is not null)
             group.RequireRateLimiting(OpenFetchServiceCollectionExtensions.RateLimiterPolicy);
         return group;
@@ -71,9 +76,10 @@ public static class OpenFetchEndpoints
         }).WithTags("OpenFetch").WithName("getQuerySchema");
     }
 
-    public static string OperationId(string dataset) => "query" + char.ToUpperInvariant(dataset[0]) + dataset[1..];
+    public static string OperationId(string dataset, string? projection = null) =>
+        "query" + QueryModelBuilder.ComponentName(dataset) + (projection is null ? "" : QueryModelBuilder.ComponentName(projection));
 
-    private static async Task<IResult> QueryAsync(HttpContext http, string dataset)
+    private static async Task<IResult> QueryAsync(HttpContext http, string dataset, string? projection)
     {
         var services = http.RequestServices;
         var engine = services.GetRequiredService<QueryEngine>();
@@ -84,7 +90,7 @@ public static class OpenFetchEndpoints
         {
             var context = SecurityContext(http);
             var body = await ReadBodyAsync(http.Request, engine.Model.Limits.MaximumDocumentBytes, ct);
-            var prepared = await engine.PrepareAsync(dataset, body, context, ct);
+            var prepared = await engine.PrepareAsync(dataset, body, context, ct, projection);
             if (options.DiagnosticMode) logger.LogDebug("OpenFetch SQL for {Dataset} ({Shape}):\n{Sql}", dataset, prepared.ShapeHash, prepared.Plan.CommandText);
 
             var output = new ArrayBufferWriter<byte>();

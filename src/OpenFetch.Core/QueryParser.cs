@@ -13,7 +13,11 @@ public static class QueryParser
 
     private static readonly string[] RootProperties = ["version", "select", "where", "orderBy", "page", "distinct"];
 
-    public static QueryDocument Parse(ReadOnlyMemory<byte> utf8, QueryLimits limits)
+    /// <summary>An empty document (no select); used as the base for fixed projections.</summary>
+    public static readonly QueryDocument Empty = new(Version, [], null, [], new PageNode(null, null, null), false);
+
+    /// <summary>Parses a query document. <c>fixedSelect</c> is true for named projections: the server owns <c>select</c>, so the client must not send it.</summary>
+    public static QueryDocument Parse(ReadOnlyMemory<byte> utf8, QueryLimits limits, bool fixedSelect = false)
     {
         if (utf8.Length > limits.MaximumDocumentBytes) throw QueryErrors.DocumentTooLarge(limits.MaximumDocumentBytes);
         // JsonDocument defers transcoding of names/strings; reject malformed UTF-8 up front so it can never surface later.
@@ -34,14 +38,14 @@ public static class QueryParser
         using (json)
         {
             // Escapes that decode to lone surrogates (e.g. "\uDD1E") are valid JSON but not valid strings; reading them throws.
-            try { return new Parser(limits).Document(json.RootElement); }
+            try { return new Parser(limits, fixedSelect).Document(json.RootElement); }
             catch (InvalidOperationException) { throw QueryErrors.InvalidJson("The document contains an invalid string escape."); }
         }
     }
 
     public static QueryDocument Parse(string json, QueryLimits limits) => Parse(System.Text.Encoding.UTF8.GetBytes(json), limits);
 
-    private sealed class Parser(QueryLimits limits)
+    private sealed class Parser(QueryLimits limits, bool fixedSelect)
     {
         public QueryDocument Document(JsonElement root)
         {
@@ -53,10 +57,12 @@ public static class QueryParser
                 if (version != QueryParser.Version) throw QueryErrors.UnsupportedVersion(version, "/version");
             }
 
-            if (!root.TryGetProperty("select", out var select)) throw QueryErrors.InvalidQuery("'select' is required.", "/select");
-            var fields = Array(select, "/select", "a non-empty array of field names")
+            var hasSelect = root.TryGetProperty("select", out var select);
+            if (fixedSelect && hasSelect) throw QueryErrors.InvalidQuery("This projection has a fixed field list; 'select' is not allowed.", "/select");
+            if (!fixedSelect && !hasSelect) throw QueryErrors.InvalidQuery("'select' is required.", "/select");
+            var fields = !hasSelect ? [] : Array(select, "/select", "a non-empty array of field names")
                 .Select((e, i) => new FieldRef(String(e, $"/select/{i}"), $"/select/{i}")).ToImmutableArray();
-            if (fields.IsEmpty) throw QueryErrors.InvalidQuery("'select' must contain at least one field.", "/select");
+            if (hasSelect && fields.IsEmpty) throw QueryErrors.InvalidQuery("'select' must contain at least one field.", "/select");
 
             var where = root.TryGetProperty("where", out var w) && w.ValueKind != JsonValueKind.Null ? Filter(w, "/where", 1) : null;
 

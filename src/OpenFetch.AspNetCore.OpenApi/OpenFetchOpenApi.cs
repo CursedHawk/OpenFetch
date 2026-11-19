@@ -46,7 +46,9 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
         // Operation transformers run first; drop operations for datasets outside this profile.
         foreach (var (path, item) in document.Paths?.ToList() ?? [])
             if (item.Operations?.Values.Any(o => o.Extensions?.TryGetValue("x-openfetch-dataset", out var d) == true
-                    && d is JsonNodeExtension { Node: var n } && !Visible(model, (string)n!)) == true)
+                    && d is JsonNodeExtension { Node: var n } && (!Visible(model, (string)n!)
+                        || (o.Extensions.TryGetValue("x-openfetch-projection", out var p) && p is JsonNodeExtension { Node: JsonObject proj }
+                            && !ProjectionVisible(model, model.Datasets[(string)n!], (string)proj["name"]!)))) == true)
                 document.Paths!.Remove(path);
 
         schemas["OpenFetchProblem"] = new OpenApiSchema
@@ -83,6 +85,24 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
     }
 
     private bool Visible(QueryModel model, string dataset) => allowed(model.Datasets[dataset].Policies);
+
+    /// <summary>A projection is published only if every field on it (and every relationship on the way) is allowed.</summary>
+    private bool ProjectionVisible(QueryModel model, DatasetDescriptor d, string name) =>
+        d.Projections[name].All(f => Resolve(model, d, f) is var (rels, col) && allowed(col.Policies) && rels.All(r => allowed(r.Policies) && Visible(model, r.TargetDataset)));
+
+    /// <summary>Walks a validated dotted path (projections are checked at startup).</summary>
+    internal static (List<RelationshipDescriptor> Relationships, ColumnDescriptor Column) Resolve(QueryModel model, DatasetDescriptor d, string path)
+    {
+        var segments = path.Split('.');
+        var rels = new List<RelationshipDescriptor>();
+        foreach (var s in segments[..^1])
+        {
+            var r = d.Relationships[s];
+            rels.Add(r);
+            d = model.Datasets[r.TargetDataset];
+        }
+        return (rels, d.Columns[segments[^1]]);
+    }
 
     private void AddDataset(IDictionary<string, IOpenApiSchema> schemas, QueryModel model, DatasetDescriptor d)
     {
@@ -190,12 +210,41 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
         }
         schemas[x + "Row"] = new OpenApiSchema { Type = JsonSchemaType.Object, Properties = row, Description = $"A {d.PublicName} row. Only selected fields are present." };
 
-        schemas[x + "Result"] = Object(new()
+        schemas[x + "Result"] = Result(x + "Row");
+
+        // §18.5 named projections: the server fixes select, so rows have required properties and are strongly typed.
+        foreach (var (name, fields) in d.Projections.Where(p => ProjectionVisible(model, d, p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal))
         {
-            ["data"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref(x + "Row") },
-            ["page"] = Ref("OpenFetchPageInfo"),
-            ["meta"] = Ref("OpenFetchMeta"),
-        }, "data", "page", "meta");
+            var px = x + QueryModelBuilder.ComponentName(name);
+            var fixedQuery = query.Where(p => p.Key != "select").ToDictionary(p => p.Key, p => p.Value);
+            schemas[px + "Query"] = Object(fixedQuery);
+            schemas[px + "Query"].Description = $"Query for the fixed '{name}' projection of {d.PublicName}; 'select' is defined by the server.";
+            schemas[px + "Row"] = ProjectionRow(model, d, fields.Select(f => (Path: f, Segments: f.Split('.'))).ToList(), 0);
+            schemas[px + "Result"] = Result(px + "Row");
+        }
+    }
+
+    private static OpenApiSchema Result(string row) => Object(new()
+    {
+        ["data"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref(row) },
+        ["page"] = Ref("OpenFetchPageInfo"),
+        ["meta"] = Ref("OpenFetchMeta"),
+    }, "data", "page", "meta");
+
+    private static OpenApiSchema ProjectionRow(QueryModel model, DatasetDescriptor d, List<(string Path, string[] Segments)> fields, int depth)
+    {
+        var properties = new Dictionary<string, IOpenApiSchema>();
+        foreach (var group in fields.GroupBy(f => f.Segments[depth]))
+        {
+            if (group.First().Segments.Length == depth + 1) { properties[group.Key] = Column(d.Columns[group.Key]); continue; }
+            var target = model.Datasets[d.Relationships[group.Key].TargetDataset];
+            var nested = ProjectionRow(model, target, [.. group], depth + 1);
+            nested.Type = JsonSchemaType.Object | JsonSchemaType.Null;
+            nested.Description = "Null when the related row is absent or not visible.";
+            properties[group.Key] = nested;
+        }
+        var row = Object(properties, [.. properties.Keys]);
+        return row;
     }
 
     internal sealed record PathColumn(string Path, ColumnDescriptor Column);
@@ -273,13 +322,15 @@ public sealed class OpenFetchOperationTransformer(QueryEngine engine, Func<IEnum
         if (context.Description.ActionDescriptor.EndpointMetadata.OfType<OpenFetchDatasetMetadata>().FirstOrDefault() is not { } meta) return Task.CompletedTask;
         var model = engine.Model;
         var d = model.Datasets[meta.Dataset];
-        var x = QueryModelBuilder.ComponentName(d.PublicName);
+        var x = QueryModelBuilder.ComponentName(d.PublicName) + (meta.Projection is null ? "" : QueryModelBuilder.ComponentName(meta.Projection));
         var l = model.Limits;
+        var relationships = d.Relationships.Values.Where(r => allowed(r.Policies) && allowed(model.Datasets[r.TargetDataset].Policies)).ToList();
 
-        operation.OperationId = OpenFetchEndpoints.OperationId(d.PublicName);
-        operation.Summary = $"Query {d.PublicName}";
-        operation.Description = (d.Description is null ? "" : d.Description + "\n\n") +
-            "Only the fields listed in `select` are returned; every other row property is absent. Relationship fields are nested objects. " +
+        operation.OperationId = OpenFetchEndpoints.OperationId(d.PublicName, meta.Projection);
+        operation.Summary = meta.Projection is null ? $"Query {d.PublicName}" : $"Query {d.PublicName} ({meta.Projection} projection)";
+        operation.Description = (d.Description is null ? "" : d.Description + "\n\n") + (meta.Projection is null
+            ? "Only the fields listed in `select` are returned; every other row property is absent. Relationship fields are nested objects. "
+            : $"Returns exactly the fields of the fixed `{meta.Projection}` projection; `select` must not be sent. ") +
             "Errors are Problem Details with a stable `code` and a JSON Pointer `path`.";
         operation.Deprecated = d.Deprecated;
         operation.RequestBody = new OpenApiRequestBody
@@ -287,7 +338,7 @@ public sealed class OpenFetchOperationTransformer(QueryEngine engine, Func<IEnum
             Required = true,
             Content = new Dictionary<string, OpenApiMediaType>
             {
-                ["application/json"] = new() { Schema = OpenFetchDocumentTransformer.Ref(x + "Query"), Example = Example(model, d, allowed) },
+                ["application/json"] = new() { Schema = OpenFetchDocumentTransformer.Ref(x + "Query"), Example = Example(model, d, allowed, meta.Projection) },
             },
         };
         operation.Responses = new OpenApiResponses
@@ -317,7 +368,7 @@ public sealed class OpenFetchOperationTransformer(QueryEngine engine, Func<IEnum
             ["cursorPagination"] = d.Capabilities.HasFlag(DatasetCapabilities.CursorPagination),
             ["offsetPagination"] = d.Capabilities.HasFlag(DatasetCapabilities.OffsetPagination),
             ["distinct"] = d.Capabilities.HasFlag(DatasetCapabilities.Distinct),
-            ["relationships"] = d.Relationships.Count > 0,
+            ["relationships"] = relationships.Count > 0,
             ["aggregation"] = false,
         });
         ext["x-openfetch-limits"] = OpenFetchDocumentTransformer.Ext(new JsonObject
@@ -334,19 +385,22 @@ public sealed class OpenFetchOperationTransformer(QueryEngine engine, Func<IEnum
             ["maxComplexity"] = l.MaximumComplexity,
         });
         ext["x-openfetch-complexity"] = OpenFetchDocumentTransformer.Ext(new JsonObject { ["version"] = Complexity.Version, ["max"] = l.MaximumComplexity });
-        ext["x-openfetch-projection"] = OpenFetchDocumentTransformer.Ext("dynamic");
-        ext["x-openfetch-relationships"] = OpenFetchDocumentTransformer.Ext(new JsonArray([.. d.Relationships.Values.OrderBy(r => r.PublicName, StringComparer.Ordinal)
+        ext["x-openfetch-projection"] = meta.Projection is null
+            ? OpenFetchDocumentTransformer.Ext("dynamic")
+            : OpenFetchDocumentTransformer.Ext(new JsonObject { ["name"] = meta.Projection, ["fields"] = new JsonArray([.. d.Projections[meta.Projection].Select(f => (JsonNode)f)]) });
+        ext["x-openfetch-relationships"] = OpenFetchDocumentTransformer.Ext(new JsonArray([.. relationships.OrderBy(r => r.PublicName, StringComparer.Ordinal)
             .Select(r => (JsonNode)new JsonObject { ["name"] = r.PublicName, ["target"] = r.TargetDataset, ["cardinality"] = "one", ["maxDepth"] = r.MaximumDepth })]));
         if (!d.Policies.IsEmpty) ext["x-openfetch-authorization"] = OpenFetchDocumentTransformer.Policies(d.Policies);
         return Task.CompletedTask;
     }
 
     /// <summary>A small valid request: the first selectable fields, ordered by the first sortable field. Validated by tests through the engine.</summary>
-    public static JsonNode Example(QueryModel model, DatasetDescriptor d, Func<IEnumerable<string>, bool> allowed)
+    public static JsonNode Example(QueryModel model, DatasetDescriptor d, Func<IEnumerable<string>, bool> allowed, string? projection = null)
     {
         var select = OpenFetchDocumentTransformer.Paths(model, d, ColumnCapabilities.Select, RelationshipCapabilities.Select, allowed)
             .Where(p => p.Column.Policies.IsEmpty).Take(3).Select(p => (JsonNode)p.Path);
-        var example = new JsonObject { ["version"] = QueryParser.Version, ["select"] = new JsonArray([.. select]), ["page"] = new JsonObject { ["first"] = Math.Min(10, d.MaximumPageSize) } };
+        var example = new JsonObject { ["version"] = QueryParser.Version, ["page"] = new JsonObject { ["first"] = Math.Min(10, d.MaximumPageSize) } };
+        if (projection is null) example["select"] = new JsonArray([.. select]);
         var sort = d.ExposedColumns.FirstOrDefault(c => c.Can(ColumnCapabilities.Sort) && c.Policies.IsEmpty);
         if (sort is not null && d.Capabilities.HasFlag(DatasetCapabilities.Sort)) example["orderBy"] = new JsonArray(new JsonObject { ["field"] = sort.PublicName, ["direction"] = "asc" });
         return example;

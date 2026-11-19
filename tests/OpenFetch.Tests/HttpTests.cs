@@ -224,6 +224,34 @@ public class HttpTests(PostgresFixture pg)
     }
 
     [Fact]
+    public async Task Named_projection_returns_fixed_fields()
+    {
+        await using var app = await TestHost.StartAsync(pg.AppConnectionString(), o => o.Dataset<Order>().Projection("financial", "id", "total"));
+        var client = app.Client(tenant: SeedData.TenantA);
+        Task<HttpResponseMessage> Post(string path, string json) =>
+            client.PostAsync(path, new StringContent(json, System.Text.Encoding.UTF8, "application/json"), Ct);
+
+        var body = await Json(await Post("/query/orders/summary", """{"orderBy":[{"field":"number"}],"page":{"first":2}}"""));
+        Assert.Equal(["id", "number", "status", "customer"], body["data"]![0]!.AsObject().Select(p => p.Key));
+        Assert.Equal("Customer A2", (string)body["data"]![0]!["customer"]!["name"]!);
+
+        var withSelect = await Post("/query/orders/summary", """{"select":["id"]}""");
+        Assert.Equal((HttpStatusCode.BadRequest, "/select"), (withSelect.StatusCode, (string)(await Json(withSelect))["path"]!));
+        Assert.Equal("unknown_dataset", (string)(await Json(await Post("/query/orders/nope", "{}")))["code"]!);
+        Assert.Equal("unknown_field", (string)(await Json(await Post("/query/orders/financial", "{}")))["code"]!); // lacks finance role
+        Assert.Equal(HttpStatusCode.OK, (await app.Client(tenant: SeedData.TenantA, roles: "finance")
+            .PostAsync("/query/orders/financial", new StringContent("{}", System.Text.Encoding.UTF8, "application/json"), Ct)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Invalid_projection_fails_startup()
+    {
+        var ex = await Assert.ThrowsAsync<OpenFetchConfigurationException>(() =>
+            TestHost.StartAsync(pg.AppConnectionString(), o => o.Dataset<Order>().Projection("bad", "id", "tenantId")));
+        Assert.Contains(ex.Errors, e => e.Contains("projection 'bad'"));
+    }
+
+    [Fact]
     public async Task Missing_authorization_policy_fails_startup()
     {
         var ex = await Assert.ThrowsAsync<OpenFetchConfigurationException>(() =>

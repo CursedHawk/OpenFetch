@@ -70,13 +70,37 @@ public static partial class QueryModelBuilder
                 }
                 catch (InvalidOperationException ex) { errors.Add(ex.Message); }
             }
-            final.Add(dataset with { Relationships = relationships, RowPolicies = policies.ToImmutable() });
+            foreach (var (name, fields) in config?.Projections ?? [])
+            {
+                if (!PublicName().IsMatch(name)) errors.Add($"Dataset '{dataset.PublicName}' projection '{name}': invalid name.");
+                if (fields.Length == 0) errors.Add($"Dataset '{dataset.PublicName}' projection '{name}': no fields.");
+            }
+            final.Add(dataset with
+            {
+                Relationships = relationships,
+                RowPolicies = policies.ToImmutable(),
+                Projections = (config?.Projections ?? []).ToFrozenDictionary(p => p.Key, p => p.Value.ToImmutableArray(), StringComparer.Ordinal),
+            });
         }
 
+        foreach (var dup in final.SelectMany(d => d.Projections.Keys.Select(p => (Name: ComponentName(d.PublicName) + ComponentName(p), Owner: $"{d.PublicName}/{p}")))
+                     .Concat(final.Select(d => (Name: ComponentName(d.PublicName), Owner: d.PublicName)))
+                     .GroupBy(x => x.Name, StringComparer.Ordinal).Where(g => g.Count() > 1))
+            errors.Add($"{string.Join(", ", dup.Select(d => $"'{d.Owner}'"))} collide on OpenAPI component name '{dup.Key}'.");
         if (errors.Count > 0) throw new OpenFetchConfigurationException(errors);
 
         var datasets = final.ToFrozenDictionary(d => d.PublicName, StringComparer.Ordinal);
-        return new QueryModel(datasets, limits, options.Features, ModelHash.Compute(datasets.Values, limits, options.Features));
+        var model = new QueryModel(datasets, limits, options.Features, ModelHash.Compute(datasets.Values, limits, options.Features));
+
+        // Projection fields must resolve like a client select would (capabilities, relationships, depth).
+        foreach (var d in datasets.Values)
+            foreach (var (name, fields) in d.Projections)
+            {
+                try { new QueryResolver(model, d, _ => true).Resolve(QueryEngine.WithProjection(QueryParser.Empty, fields)); }
+                catch (OpenFetchException ex) { errors.Add($"Dataset '{d.PublicName}' projection '{name}': {ex.Detail}"); }
+            }
+        if (errors.Count > 0) throw new OpenFetchConfigurationException(errors);
+        return model;
     }
 
     /// <summary>OpenAPI component prefix for a dataset (§18.3): PascalCase, underscores dropped (orders -> Orders).</summary>
@@ -300,6 +324,7 @@ internal static class ModelHash
                 w.WriteString("description", d.Description);
                 w.WriteString("shape", $"{d.DefaultPageSize}/{d.MaximumPageSize}/{d.MaximumRelationshipDepth}/{d.Capabilities}/{d.Deprecated}/{string.Join(',', d.Policies)}");
                 w.WriteString("rowPolicies", string.Join(',', d.RowPolicies.Select(p => p.ContextType.FullName)));
+                foreach (var p in d.Projections.OrderBy(p => p.Key, StringComparer.Ordinal)) w.WriteString("p:" + p.Key, string.Join(',', p.Value));
                 foreach (var c in d.Columns.Values.OrderBy(c => c.PublicName, StringComparer.Ordinal))
                     w.WriteString("c:" + c.PublicName, $"{c.Kind}/{c.Nullable}/{c.Capabilities}/{string.Join(',', c.Operators.Order())}/{string.Join(',', c.Policies)}/{c.Deprecated}/{c.Format}/{c.MaxLength}/{c.Precision}/{c.Scale}/{string.Join(',', c.EnumValues)}/{c.Description}");
                 foreach (var r in d.Relationships.Values.OrderBy(r => r.PublicName, StringComparer.Ordinal))

@@ -90,6 +90,7 @@ internal sealed class DatasetConfig
     public DatasetCapabilities Enabled, Disabled;
     public readonly List<string> Policies = [];
     public readonly List<LambdaExpression> RowPolicies = [];
+    public readonly Dictionary<string, string[]> Projections = [];
     public readonly Dictionary<string, MemberConfig> Members = [];
     public readonly List<string> Conflicts = [];
 
@@ -153,6 +154,15 @@ public sealed class DatasetBuilder<T> where T : class
     public DatasetBuilder<T> ApplyRowPolicy<TContext>(Expression<Func<T, TContext, bool>> predicate) where TContext : class
     {
         _c.RowPolicies.Add(predicate);
+        return this;
+    }
+
+    /// <summary>Named fixed projection (§18.5): <c>POST {prefix}/{dataset}/{name}</c> always returns exactly these fields (dotted paths allowed).</summary>
+    public DatasetBuilder<T> Projection(string name, params string[] fields)
+    {
+        if (_c.Projections.TryGetValue(name, out var existing) && !existing.SequenceEqual(fields))
+            _c.Conflicts.Add($"Projection '{name}' on {typeof(T).Name} registered with different fields");
+        _c.Projections[name] = fields;
         return this;
     }
 

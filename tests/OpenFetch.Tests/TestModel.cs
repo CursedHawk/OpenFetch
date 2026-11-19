@@ -24,7 +24,9 @@ public static class TestModel
     /// <summary>Standard test configuration: tenant isolation + soft-delete as trusted row policies.</summary>
     public static void Configure(OpenFetchOptions o)
     {
-        o.Dataset<Order>().ApplyRowPolicy<TenantContext>((x, c) => x.TenantId == c.TenantId && !x.IsDeleted);
+        o.Dataset<Order>()
+            .ApplyRowPolicy<TenantContext>((x, c) => x.TenantId == c.TenantId && !x.IsDeleted)
+            .Projection("summary", "id", "number", "status", "customer.name");
         o.Dataset<Customer>().ApplyRowPolicy<TenantContext>((x, c) => x.TenantId == c.TenantId);
     }
 }

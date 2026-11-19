@@ -46,13 +46,17 @@ public sealed class QueryEngine(
     public QueryModel Model => model;
     public IQueryCompiler Compiler => compiler;
 
-    public async ValueTask<PreparedQuery> PrepareAsync(string dataset, ReadOnlyMemory<byte> body, QuerySecurityContext context, CancellationToken ct)
+    public async ValueTask<PreparedQuery> PrepareAsync(string dataset, ReadOnlyMemory<byte> body, QuerySecurityContext context, CancellationToken ct, string? projection = null)
     {
-        // Unknown and inaccessible datasets produce the identical error (§16.2).
+        // Unknown and inaccessible datasets (and projections) produce the identical error (§16.2).
         if (!model.Datasets.TryGetValue(dataset, out var root) || !await context.IsAuthorizedAsync(root.Policies, ct))
-            throw QueryErrors.UnknownDataset(dataset);
+            throw QueryErrors.UnknownDataset(projection is null ? dataset : dataset + "/" + projection);
+        var fixedFields = ImmutableArray<string>.Empty;
+        if (projection is not null && !root.Projections.TryGetValue(projection, out fixedFields))
+            throw QueryErrors.UnknownDataset(dataset + "/" + projection);
 
-        var doc = QueryParser.Parse(body, model.Limits);
+        var doc = QueryParser.Parse(body, model.Limits, fixedSelect: projection is not null);
+        if (projection is not null) doc = WithProjection(doc, fixedFields);
         var allowed = await AllowedPoliciesAsync(context, ReachablePolicies(root), ct);
         var resolved = new QueryResolver(model, root, p => p.All(allowed.Contains)).Resolve(doc);
         var secured = await SecureAsync(resolved, context, ct);
@@ -69,6 +73,9 @@ public sealed class QueryEngine(
         var plan = compiler.Compile(secured);
         return new PreparedQuery(secured, plan, shape, scope, complexity);
     }
+
+    internal static QueryDocument WithProjection(QueryDocument doc, ImmutableArray<string> fields) =>
+        doc with { Select = [.. fields.Select((f, i) => new FieldRef(f, $"/select/{i}"))] };
 
     /// <summary>Evaluates each named policy once; result is the set the caller satisfies.</summary>
     public static async ValueTask<HashSet<string>> AllowedPoliciesAsync(QuerySecurityContext context, IEnumerable<string> policies, CancellationToken ct)

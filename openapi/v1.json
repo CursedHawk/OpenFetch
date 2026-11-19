@@ -870,6 +870,147 @@
           "customer.name"
         ],
         "type": "string"
+      },
+      "OrdersSummaryQuery": {
+        "additionalProperties": false,
+        "description": "Query for the fixed \u0027summary\u0027 projection of orders; \u0027select\u0027 is defined by the server.",
+        "properties": {
+          "orderBy": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersOrder"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/OrdersPage"
+          },
+          "version": {
+            "enum": [
+              "1.0"
+            ],
+            "type": "string"
+          },
+          "where": {
+            "$ref": "#/components/schemas/OrdersFilter"
+          }
+        },
+        "type": "object"
+      },
+      "OrdersSummaryResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersSummaryRow"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OpenFetchMeta"
+          },
+          "page": {
+            "$ref": "#/components/schemas/OpenFetchPageInfo"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "meta"
+        ],
+        "type": "object"
+      },
+      "OrdersSummaryRow": {
+        "additionalProperties": false,
+        "properties": {
+          "customer": {
+            "additionalProperties": false,
+            "description": "Null when the related row is absent or not visible.",
+            "properties": {
+              "name": {
+                "maxLength": 200,
+                "type": "string",
+                "x-openfetch-capabilities": [
+                  "select",
+                  "filter",
+                  "sort"
+                ],
+                "x-openfetch-operators": [
+                  "eq",
+                  "ne",
+                  "in",
+                  "notIn",
+                  "contains",
+                  "startsWith",
+                  "endsWith"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort",
+              "cursor"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "in",
+              "notIn"
+            ]
+          },
+          "number": {
+            "maxLength": 32,
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "contains",
+              "startsWith"
+            ]
+          },
+          "status": {
+            "enum": [
+              "open",
+              "processing",
+              "shipped",
+              "cancelled"
+            ],
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "in"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "customer"
+        ],
+        "type": "object"
       }
     }
   },
@@ -1235,6 +1376,184 @@
         ]
       }
     },
+    "/query/orders/summary": {
+      "post": {
+        "description": "Queryable sales orders\n\nReturns exactly the fields of the fixed \u0060summary\u0060 projection; \u0060select\u0060 must not be sent. Errors are Problem Details with a stable \u0060code\u0060 and a JSON Pointer \u0060path\u0060.",
+        "operationId": "queryOrdersSummary",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "orderBy": [
+                  {
+                    "direction": "asc",
+                    "field": "id"
+                  }
+                ],
+                "page": {
+                  "first": 10
+                },
+                "version": "1.0"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/OrdersSummaryQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdersSummaryResult"
+                }
+              }
+            },
+            "description": "A page of rows."
+          },
+          "400": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Invalid JSON or query syntax."
+          },
+          "401": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Authentication required."
+          },
+          "403": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Unknown or inaccessible dataset."
+          },
+          "413": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Query document too large."
+          },
+          "422": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Semantically invalid query."
+          },
+          "429": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Rate or concurrency limit."
+          },
+          "500": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Unexpected execution failure."
+          },
+          "504": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Query timeout."
+          }
+        },
+        "summary": "Query orders (summary projection)",
+        "tags": [
+          "OpenFetch"
+        ],
+        "x-openfetch-capabilities": {
+          "aggregation": false,
+          "cursorPagination": true,
+          "distinct": false,
+          "filtering": true,
+          "offsetPagination": true,
+          "projection": true,
+          "relationships": true,
+          "sorting": true
+        },
+        "x-openfetch-complexity": {
+          "max": 150,
+          "version": 1
+        },
+        "x-openfetch-dataset": "orders",
+        "x-openfetch-limits": {
+          "defaultPageSize": 100,
+          "maxComplexity": 150,
+          "maxConditions": 50,
+          "maxFilterDepth": 6,
+          "maxInValues": 200,
+          "maxOffset": 10000,
+          "maxPageSize": 500,
+          "maxRelationshipDepth": 2,
+          "maxRelationships": 3,
+          "maxSelectedFields": 50
+        },
+        "x-openfetch-projection": {
+          "fields": [
+            "id",
+            "number",
+            "status",
+            "customer.name"
+          ],
+          "name": "summary"
+        },
+        "x-openfetch-relationships": [
+          {
+            "cardinality": "one",
+            "maxDepth": 1,
+            "name": "customer",
+            "target": "customers"
+          }
+        ]
+      }
+    },
     "/query/schema": {
       "get": {
         "operationId": "getQuerySchema",
@@ -1259,7 +1578,7 @@
       "name": "OpenFetch"
     }
   ],
-  "x-openfetch-model-version": "f9e33d091f5f4051",
+  "x-openfetch-model-version": "c885b90a9f431199",
   "x-openfetch-provider": {
     "compilerVersion": "1",
     "name": "postgresql"
