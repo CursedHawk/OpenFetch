@@ -74,6 +74,29 @@ public class SqlServerTests(SqlServerFixture ms)
         Assert.Equal(seen.Distinct(), seen);
     }
 
+    [Fact]
+    public async Task In_lists_compare_full_values_not_values_cut_to_column_size()
+    {
+        // customer.country is nvarchar(2) and total decimal(18,2): "CZxx" or 100.504 must not match "CZ"/100.50 by truncation/rounding.
+        var longNumber = "CZxx";
+        var json = $$$"""{"select":["id"],"where":{"type":"logical","operator":"or","children":[{"type":"comparison","field":"customer.country","operator":"in","value":["{{{longNumber}}}"]},{"type":"comparison","field":"total","operator":"in","value":[100.504]}]}}""";
+        Assert.Empty(Ids(await Run(Engine, ms.AppConnectionString(), "orders", json, SeedData.TenantA)));
+        var exact = """{"select":["id"],"where":{"type":"comparison","field":"total","operator":"in","value":[100.50, 200.5]}}""";
+        Assert.Equal(2, Ids(await Run(Engine, ms.AppConnectionString(), "orders", exact, SeedData.TenantA)).Count);
+    }
+
+    [Fact]
+    public async Task Session_context_is_cleared_after_the_query_on_a_kept_open_connection()
+    {
+        var context = TestEngine.Context(SeedData.TenantA);
+        var prepared = await Engine.PrepareAsync("orders", """{"select":["id"]}""", context);
+        await using var connection = new SqlConnection(ms.AppConnectionString());
+        await connection.OpenAsync(TestContext.Current.CancellationToken); // caller-owned and kept open (like a DbContext connection)
+        await Engine.ExecuteAsync(connection, prepared, context, new ArrayBufferWriter<byte>(), TestContext.Current.CancellationToken);
+        await using var probe = new SqlCommand("SELECT SESSION_CONTEXT(N'openfetch.tenant_id')", connection);
+        Assert.Equal(DBNull.Value, await probe.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+    }
+
     [Theory]
     [InlineData("' OR 1=1--")]
     [InlineData("]; DROP TABLE sales.Orders;--")]

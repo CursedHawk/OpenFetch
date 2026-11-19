@@ -23,22 +23,46 @@ public sealed partial class SqlServerCompiler : SqlCompiler
     [GeneratedRegex("^[a-z_][a-z0-9_]{0,62}$")]
     private static partial Regex SettingKey();
 
-    [GeneratedRegex(@"^[a-zA-Z0-9]+(\s*\(\s*(\d+|max)\s*(,\s*\d+\s*)?\))?$")]
-    private static partial Regex StoreType();
 
     public override string Quote(string identifier) => "[" + identifier.Replace("]", "]]") + "]";
 
     protected override void In(SqlBuilder b, ResolvedField field, ImmutableArray<object> values, bool negate)
     {
         var c = field.Column;
-        // The store type comes from EF metadata (trusted) and is still shape-checked before it is spliced in.
-        var storeType = c.Physical.StoreType is { } t && StoreType().IsMatch(t) ? t
-            : throw QueryErrors.UnsupportedFeature($"Field '{c.PublicName}' cannot be used with in/notIn on this provider.");
-        var json = JsonSerializer.Serialize(values.Select(v => Json(SqlBuilder.ToProvider(c, v))).ToArray());
+        var storeType = LosslessType(c.Physical.StoreType)
+            ?? throw QueryErrors.UnsupportedFeature($"Field '{c.PublicName}' cannot be used with in/notIn on this provider.");
+        var provider = values.Select(v => SqlBuilder.ToProvider(c, v)).ToArray();
+        if (storeType.StartsWith("decimal", StringComparison.Ordinal) && provider.Any(v => v is decimal d && !FitsDecimal38_18(d)))
+            throw QueryErrors.InvalidValueType($"Values for '{c.PublicName}' must have at most 20 integer and 18 fractional digits.", "/where");
+        var json = JsonSerializer.Serialize(provider.Select(Json).ToArray());
         b.Column(field);
         b.Sql.Append(negate ? " NOT IN (SELECT v FROM OPENJSON(" : " IN (SELECT v FROM OPENJSON(")
              .Append(b.Parameter(json)).Append(") WITH (v ").Append(storeType).Append(" '$'))");
     }
+
+    /// <summary>
+    /// OPENJSON target type that can hold every client value without truncation or rounding, so the comparison against
+    /// the column happens on the real value (never on a value shortened to the column's declared length/precision).
+    /// Only a fixed whitelist of base types is accepted; nothing from metadata is spliced in verbatim.
+    /// </summary>
+    internal static string? LosslessType(string? storeType)
+    {
+        var name = storeType?.Split('(')[0].Trim().ToLowerInvariant();
+        return name switch
+        {
+            "char" or "varchar" => "varchar(max)",
+            "nchar" or "nvarchar" => "nvarchar(max)",
+            "decimal" or "numeric" or "money" or "smallmoney" => "decimal(38,18)",
+            "datetime" or "datetime2" or "smalldatetime" => "datetime2(7)",
+            "datetimeoffset" => "datetimeoffset(7)",
+            "time" => "time(7)",
+            "float" or "real" => "float",
+            "date" or "int" or "bigint" or "smallint" or "tinyint" or "bit" or "uniqueidentifier" => name,
+            _ => null,
+        };
+    }
+
+    private static bool FitsDecimal38_18(decimal d) => d.Scale <= 18 && Math.Abs(decimal.Truncate(d)) < 100_000_000_000_000_000_000m;
 
     private static object? Json(object? value) => value switch
     {
@@ -81,6 +105,18 @@ public sealed partial class SqlServerCompiler : SqlCompiler
             if (i > 0) b.Sql.Append(";\n");
             b.Sql.Append("EXEC sp_set_session_context @key = ").Append(b.Parameter("openfetch." + key))
                  .Append(", @value = ").Append(b.Parameter(value ?? "")).Append(", @read_only = 0");
+        }
+        return new CompiledCommand(b.Sql.ToString(), [.. b.Parameters]);
+    }
+
+    /// <summary>Clears every key set by <see cref="CompileSessionSetup"/> (NULL value) once the query is done.</summary>
+    public override CompiledCommand CompileSessionTeardown(IReadOnlyList<KeyValuePair<string, string?>> settings)
+    {
+        var b = new SqlBuilder(this);
+        for (var i = 0; i < settings.Count; i++)
+        {
+            if (i > 0) b.Sql.Append(";\n");
+            b.Sql.Append("EXEC sp_set_session_context @key = ").Append(b.Parameter("openfetch." + settings[i].Key)).Append(", @value = NULL");
         }
         return new CompiledCommand(b.Sql.ToString(), [.. b.Parameters]);
     }

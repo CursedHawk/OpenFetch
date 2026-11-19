@@ -53,6 +53,8 @@ public interface IQueryCompiler
     QueryPlan Compile(ResolvedQuery query);
     /// <summary>Statement run first in the query's transaction: read-only mode plus transaction-local RLS settings.</summary>
     CompiledCommand CompileSessionSetup(IReadOnlyList<KeyValuePair<string, string?>> settings);
+    /// <summary>Statement run after the query (also on failure) to clear session-scoped security state; empty when settings are transaction-local.</summary>
+    CompiledCommand CompileSessionTeardown(IReadOnlyList<KeyValuePair<string, string?>> settings) => new("", []);
 }
 
 public sealed record CompiledCommand(string CommandText, ImmutableArray<QueryParameter> Parameters);

@@ -194,12 +194,12 @@ public sealed class QueryEngine(
         var tags = new TagList { { "openfetch.dataset", prepared.Query.Dataset.PublicName } };
         var started = Stopwatch.GetTimestamp();
         var opened = connection.State != ConnectionState.Open;
+        var settings = security.DatabaseRowLevelSecurity ? security.DatabaseSessionValues!(context).ToList() : [];
         try
         {
             if (opened) await connection.OpenAsync(ct);
             await using var tx = await connection.BeginTransactionAsync(ct);
 
-            var settings = security.DatabaseRowLevelSecurity ? security.DatabaseSessionValues!(context).ToList() : [];
             var setupCommand = compiler.CompileSessionSetup(settings);
             if (setupCommand.CommandText.Length > 0)
                 await using (var setup = Command(connection, tx, setupCommand))
@@ -224,14 +224,32 @@ public sealed class QueryEngine(
         }
         finally
         {
+            await TeardownAsync(connection, settings);
             if (opened) await connection.CloseAsync();
             Duration.Record(Stopwatch.GetElapsedTime(started).TotalMilliseconds, tags);
         }
     }
 
+    /// <summary>Clears session-scoped security values (SQL Server) so they never outlive the query on this connection.
+    /// If clearing fails, the connection is closed: a pooled connection is reset before its next use.</summary>
+    private async Task TeardownAsync(DbConnection connection, List<KeyValuePair<string, string?>> settings)
+    {
+        var teardown = compiler.CompileSessionTeardown(settings);
+        if (teardown.CommandText.Length == 0 || connection.State != ConnectionState.Open) return;
+        try
+        {
+            await using var command = Command(connection, null, teardown);
+            await command.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+        catch (DbException)
+        {
+            await connection.CloseAsync();
+        }
+    }
+
     private static IEnumerable<Exception> Chain(Exception? e) { for (; e is not null; e = e.InnerException) yield return e; }
 
-    private DbCommand Command(DbConnection connection, DbTransaction tx, CompiledCommand compiled)
+    private DbCommand Command(DbConnection connection, DbTransaction? tx, CompiledCommand compiled)
     {
         var command = connection.CreateCommand();
         command.Transaction = tx;

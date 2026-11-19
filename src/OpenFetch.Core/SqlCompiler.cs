@@ -24,6 +24,7 @@ public abstract class SqlCompiler : IQueryCompiler
     protected abstract void OrderTerm(SqlBuilder b, ResolvedOrder order, string? distinctAlias);
     protected abstract void Paging(SqlBuilder b, int limit, int offset);
     public abstract CompiledCommand CompileSessionSetup(IReadOnlyList<KeyValuePair<string, string?>> settings);
+    public virtual CompiledCommand CompileSessionTeardown(IReadOnlyList<KeyValuePair<string, string?>> settings) => new("", []);
 
     public QueryPlan Compile(ResolvedQuery q)
     {
