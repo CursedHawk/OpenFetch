@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenFetch.AspNetCore;
+using OpenFetch.AspNetCore.OpenApi;
 using OpenFetch.Compiler.PostgreSql;
 using OpenFetch.Tests.Domain;
 
@@ -48,6 +49,7 @@ public static class TestHost
             TestModel.Configure(o);
             configure?.Invoke(o);
         });
+        builder.Services.AddOpenApi(o => o.AddOpenFetch());
         services?.Invoke(builder);
         var app = builder.Build();
         app.UseAuthentication();
@@ -55,6 +57,7 @@ public static class TestHost
         app.MapOpenFetch();
         app.MapOpenFetchCapabilities();
         app.MapOpenFetchSchema();
+        app.MapOpenApi();
         map?.Invoke(app);
         await app.StartAsync();
         return app;

@@ -48,6 +48,8 @@ public static partial class QueryModelBuilder
 
         foreach (var dup in built.GroupBy(b => b.Dataset.PublicName, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
             errors.Add($"Duplicate dataset name '{dup.Key}'.");
+        foreach (var dup in built.GroupBy(b => ComponentName(b.Dataset.PublicName), StringComparer.Ordinal).Where(g => g.Count() > 1))
+            errors.Add($"Datasets {string.Join(", ", dup.Select(d => $"'{d.Dataset.PublicName}'"))} collide on OpenAPI component name '{dup.Key}'.");
 
         // Pass 2: relationships (need every dataset) and row policies.
         var byType = built.ToDictionary(b => b.Mapping.ClrType, b => b.Dataset);
@@ -76,6 +78,10 @@ public static partial class QueryModelBuilder
         var datasets = final.ToFrozenDictionary(d => d.PublicName, StringComparer.Ordinal);
         return new QueryModel(datasets, limits, options.Features, ModelHash.Compute(datasets.Values, limits, options.Features));
     }
+
+    /// <summary>OpenAPI component prefix for a dataset (§18.3): PascalCase, underscores dropped (orders -> Orders).</summary>
+    public static string ComponentName(string dataset) =>
+        string.Concat(dataset.Split('_', StringSplitOptions.RemoveEmptyEntries).Select(p => char.ToUpperInvariant(p[0]) + p[1..]));
 
     private static DatasetDescriptor? BuildDataset(EntityMapping m, DatasetConfig? cfg, OpenFetchOptions options, List<string> errors)
     {

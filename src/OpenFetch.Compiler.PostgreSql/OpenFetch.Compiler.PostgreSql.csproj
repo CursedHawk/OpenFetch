@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenFetch PostgreSQL compiler: parameterized SQL with trusted identifiers, keyset pagination and transaction-local RLS session settings.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OpenFetch.Core\OpenFetch.Core.csproj" />
   </ItemGroup>

@@ -480,3 +480,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+eng/sdk-smoke/cs/Client/
+eng/sdk-smoke/ts/node_modules/
+eng/sdk-smoke/ts/schema.d.ts
+eng/sdk-smoke/ts/package-lock.json

@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenFetch query engine: strict JSON parser, metadata resolution, capability and authorization checks, row-policy injection, complexity scoring, authenticated cursors and ADO.NET execution.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OpenFetch.Abstractions\OpenFetch.Abstractions.csproj" />
     <InternalsVisibleTo Include="OpenFetch.Tests" />

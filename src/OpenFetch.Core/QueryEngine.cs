@@ -395,8 +395,8 @@ public static class Complexity
     {
         var score = 1 + q.Select.Length + q.Joins.Length * 15 + (q.Distinct ? 20 : 0);
         score += Filter(q.Where, client: true) + Filter(q.Policy, client: false) + q.Joins.Sum(j => Filter(j.Policy, client: false));
-        var tieBreakers = q.Dataset.Key.Length;
-        score += q.OrderBy.Take(q.OrderBy.Length - tieBreakers).Count(o => !o.Field.Column.Indexed) * 30;
+        // Root key columns are served by the primary-key index (and are the appended tie-breaker), so they are never charged.
+        score += q.OrderBy.Count(o => !o.Field.Column.Indexed && !(o.Field.Alias == "t0" && q.Dataset.Key.Contains(o.Field.Column))) * 30;
         return score;
     }
 

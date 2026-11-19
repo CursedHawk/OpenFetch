@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenFetch OpenAPI 3.1 transformers: dataset-specific query/filter/row schemas with discriminators and x-openfetch-* extensions, generated from the QueryModel.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\OpenFetch.AspNetCore\OpenFetch.AspNetCore.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+  </ItemGroup>
+</Project>

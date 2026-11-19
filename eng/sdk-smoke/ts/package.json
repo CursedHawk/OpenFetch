@@ -1,0 +1,13 @@
+{
+  "name": "openfetch-sdk-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "openapi-typescript ../../../openapi/v1.json -o schema.d.ts && tsc --strict --noEmit --module nodenext --moduleResolution nodenext --target es2022 client.ts"
+  },
+  "devDependencies": {
+    "openapi-fetch": "0.17.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenFetch EF Core adapter: reads physical metadata (tables, columns, keys, navigations, converters, indexes) from a DbContext model. Discovery never implies exposure.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OpenFetch.Core\OpenFetch.Core.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />

@@ -100,6 +100,12 @@ public class SecurityTests
         // 1 + 2 fields + 15 join + 4 root policy + 2 join policy + (2 + 25 leading wildcard + 20 unindexed) + 30 unindexed sort
         Assert.Equal(101, join.Complexity);
 
+        // docs/complexity-v1.md worked example (§31 reference request) and key-first ordering.
+        var reference = await engine.PrepareAsync("orders", Corpus.Read("valid", "orders.reference"), TestEngine.Context(SeedData.TenantA));
+        Assert.Equal(84, reference.Complexity);
+        var keyFirst = await engine.PrepareAsync("orders", """{"select":["id"],"orderBy":[{"field":"id"},{"field":"createdAt"}]}""", TestEngine.Context(SeedData.TenantA));
+        Assert.Equal(36, keyFirst.Complexity);
+
         var tight = TestEngine.Create(TestModel.Build(o => { TestModel.Configure(o); o.Security.MaximumComplexity(20); }));
         var ex = await Assert.ThrowsAsync<OpenFetchException>(async () => await tight.PrepareAsync("orders", """{"select":["id","customer.name"]}""", TestEngine.Context(SeedData.TenantA)));
         Assert.Equal("query_too_complex", ex.Code);

@@ -1,0 +1,1268 @@
+{
+  "components": {
+    "schemas": {
+      "CustomersComparisonFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/CustomersFilterableField"
+          },
+          "operator": {
+            "enum": [
+              "eq",
+              "ne",
+              "in",
+              "notIn",
+              "contains",
+              "startsWith",
+              "endsWith"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "const": "comparison",
+            "enum": [
+              "comparison"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "description": "Scalar for comparison/string operators; array for in/notIn; two-element array for between/notBetween; null only with eq/ne.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OpenFetchScalar"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OpenFetchScalar"
+                },
+                "maxItems": 200,
+                "type": "array"
+              }
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "field",
+          "operator"
+        ],
+        "type": "object",
+        "x-openfetch-operators": {
+          "country": [
+            "eq",
+            "ne",
+            "in",
+            "notIn",
+            "contains",
+            "startsWith",
+            "endsWith"
+          ],
+          "id": [
+            "eq",
+            "ne",
+            "in",
+            "notIn"
+          ],
+          "name": [
+            "eq",
+            "ne",
+            "in",
+            "notIn",
+            "contains",
+            "startsWith",
+            "endsWith"
+          ]
+        }
+      },
+      "CustomersFilter": {
+        "discriminator": {
+          "mapping": {
+            "comparison": "#/components/schemas/CustomersComparisonFilter",
+            "logical": "#/components/schemas/CustomersLogicalFilter",
+            "not": "#/components/schemas/CustomersNotFilter"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CustomersComparisonFilter"
+          },
+          {
+            "$ref": "#/components/schemas/CustomersLogicalFilter"
+          },
+          {
+            "$ref": "#/components/schemas/CustomersNotFilter"
+          }
+        ]
+      },
+      "CustomersFilterableField": {
+        "enum": [
+          "id",
+          "country",
+          "name"
+        ],
+        "type": "string"
+      },
+      "CustomersLogicalFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/CustomersFilter"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "operator": {
+            "enum": [
+              "and",
+              "or"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "const": "logical",
+            "enum": [
+              "logical"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "operator",
+          "children"
+        ],
+        "type": "object"
+      },
+      "CustomersNotFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "operand": {
+            "$ref": "#/components/schemas/CustomersFilter"
+          },
+          "type": {
+            "const": "not",
+            "enum": [
+              "not"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "operand"
+        ],
+        "type": "object"
+      },
+      "CustomersOrder": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "default": "asc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "type": "string"
+          },
+          "field": {
+            "$ref": "#/components/schemas/CustomersSortableField"
+          }
+        },
+        "required": [
+          "field"
+        ],
+        "type": "object"
+      },
+      "CustomersPage": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "endCursor of the previous page. Cannot be combined with offset.",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "first": {
+            "default": 100,
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CustomersQuery": {
+        "additionalProperties": false,
+        "description": "Customers",
+        "properties": {
+          "orderBy": {
+            "items": {
+              "$ref": "#/components/schemas/CustomersOrder"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CustomersPage"
+          },
+          "select": {
+            "description": "Fields to return. Relationship fields use dotted paths and are returned as nested objects.",
+            "items": {
+              "$ref": "#/components/schemas/CustomersSelectableField"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "version": {
+            "enum": [
+              "1.0"
+            ],
+            "type": "string"
+          },
+          "where": {
+            "$ref": "#/components/schemas/CustomersFilter"
+          }
+        },
+        "required": [
+          "select"
+        ],
+        "type": "object"
+      },
+      "CustomersResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CustomersRow"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OpenFetchMeta"
+          },
+          "page": {
+            "$ref": "#/components/schemas/OpenFetchPageInfo"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "meta"
+        ],
+        "type": "object"
+      },
+      "CustomersRow": {
+        "description": "A customers row. Only selected fields are present.",
+        "properties": {
+          "country": {
+            "maxLength": 2,
+            "type": [
+              "null",
+              "string"
+            ],
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "in",
+              "notIn",
+              "contains",
+              "startsWith",
+              "endsWith"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort",
+              "cursor"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "in",
+              "notIn"
+            ]
+          },
+          "name": {
+            "maxLength": 200,
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "in",
+              "notIn",
+              "contains",
+              "startsWith",
+              "endsWith"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "CustomersSelectableField": {
+        "enum": [
+          "id",
+          "country",
+          "name"
+        ],
+        "type": "string"
+      },
+      "CustomersSortableField": {
+        "enum": [
+          "id",
+          "country",
+          "name"
+        ],
+        "type": "string"
+      },
+      "OpenFetchMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset": {
+            "type": "string"
+          },
+          "modelVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset",
+          "modelVersion"
+        ],
+        "type": "object"
+      },
+      "OpenFetchPageInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "endCursor": {
+            "description": "Opaque authenticated cursor; null on the last page or when the ordering is not cursor-capable.",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasNext": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "count",
+          "hasNext",
+          "endCursor"
+        ],
+        "type": "object"
+      },
+      "OpenFetchProblem": {
+        "description": "RFC 9457 Problem Details with a stable machine-readable code and a JSON Pointer path (\u00A724).",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code"
+        ],
+        "type": "object"
+      },
+      "OpenFetchScalar": {
+        "description": "Native JSON scalar. Dates, times and GUIDs are strings (RFC 3339 date-time with offset, yyyy-MM-dd, HH:mm:ss, 36-char GUID).",
+        "type": [
+          "null",
+          "boolean",
+          "number",
+          "string"
+        ]
+      },
+      "OrdersComparisonFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/OrdersFilterableField"
+          },
+          "operator": {
+            "enum": [
+              "eq",
+              "ne",
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "in",
+              "notIn",
+              "between",
+              "notBetween",
+              "contains",
+              "startsWith",
+              "endsWith"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "const": "comparison",
+            "enum": [
+              "comparison"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "description": "Scalar for comparison/string operators; array for in/notIn; two-element array for between/notBetween; null only with eq/ne.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OpenFetchScalar"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OpenFetchScalar"
+                },
+                "maxItems": 200,
+                "type": "array"
+              }
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "field",
+          "operator"
+        ],
+        "type": "object",
+        "x-openfetch-operators": {
+          "createdAt": [
+            "eq",
+            "ne",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "in",
+            "notIn",
+            "between",
+            "notBetween"
+          ],
+          "customer.country": [
+            "eq",
+            "ne",
+            "in",
+            "notIn",
+            "contains",
+            "startsWith",
+            "endsWith"
+          ],
+          "customer.id": [
+            "eq",
+            "ne",
+            "in",
+            "notIn"
+          ],
+          "customer.name": [
+            "eq",
+            "ne",
+            "in",
+            "notIn",
+            "contains",
+            "startsWith",
+            "endsWith"
+          ],
+          "id": [
+            "eq",
+            "ne",
+            "in",
+            "notIn"
+          ],
+          "number": [
+            "eq",
+            "ne",
+            "contains",
+            "startsWith"
+          ],
+          "status": [
+            "eq",
+            "ne",
+            "in"
+          ],
+          "total": [
+            "eq",
+            "ne",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "in",
+            "notIn",
+            "between",
+            "notBetween"
+          ]
+        }
+      },
+      "OrdersFilter": {
+        "discriminator": {
+          "mapping": {
+            "comparison": "#/components/schemas/OrdersComparisonFilter",
+            "logical": "#/components/schemas/OrdersLogicalFilter",
+            "not": "#/components/schemas/OrdersNotFilter"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OrdersComparisonFilter"
+          },
+          {
+            "$ref": "#/components/schemas/OrdersLogicalFilter"
+          },
+          {
+            "$ref": "#/components/schemas/OrdersNotFilter"
+          }
+        ]
+      },
+      "OrdersFilterableField": {
+        "enum": [
+          "id",
+          "createdAt",
+          "number",
+          "status",
+          "total",
+          "customer.id",
+          "customer.country",
+          "customer.name"
+        ],
+        "type": "string"
+      },
+      "OrdersLogicalFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersFilter"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "operator": {
+            "enum": [
+              "and",
+              "or"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "const": "logical",
+            "enum": [
+              "logical"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "operator",
+          "children"
+        ],
+        "type": "object"
+      },
+      "OrdersNotFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "operand": {
+            "$ref": "#/components/schemas/OrdersFilter"
+          },
+          "type": {
+            "const": "not",
+            "enum": [
+              "not"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "operand"
+        ],
+        "type": "object"
+      },
+      "OrdersOrder": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "default": "asc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "type": "string"
+          },
+          "field": {
+            "$ref": "#/components/schemas/OrdersSortableField"
+          }
+        },
+        "required": [
+          "field"
+        ],
+        "type": "object"
+      },
+      "OrdersPage": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "endCursor of the previous page. Cannot be combined with offset.",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "first": {
+            "default": 100,
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "OrdersQuery": {
+        "additionalProperties": false,
+        "description": "Queryable sales orders",
+        "properties": {
+          "orderBy": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersOrder"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/OrdersPage"
+          },
+          "select": {
+            "description": "Fields to return. Relationship fields use dotted paths and are returned as nested objects.",
+            "items": {
+              "$ref": "#/components/schemas/OrdersSelectableField"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "version": {
+            "enum": [
+              "1.0"
+            ],
+            "type": "string"
+          },
+          "where": {
+            "$ref": "#/components/schemas/OrdersFilter"
+          }
+        },
+        "required": [
+          "select"
+        ],
+        "type": "object"
+      },
+      "OrdersResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersRow"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/OpenFetchMeta"
+          },
+          "page": {
+            "$ref": "#/components/schemas/OpenFetchPageInfo"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "meta"
+        ],
+        "type": "object"
+      },
+      "OrdersRow": {
+        "description": "A orders row. Only selected fields are present.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort",
+              "cursor"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "in",
+              "notIn",
+              "between",
+              "notBetween"
+            ]
+          },
+          "customer": {
+            "description": "Related customers row (null when absent or not visible).",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CustomersRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort",
+              "cursor"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "in",
+              "notIn"
+            ]
+          },
+          "number": {
+            "maxLength": 32,
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "contains",
+              "startsWith"
+            ]
+          },
+          "status": {
+            "enum": [
+              "open",
+              "processing",
+              "shipped",
+              "cancelled"
+            ],
+            "type": "string",
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "in"
+            ]
+          },
+          "total": {
+            "format": "decimal",
+            "type": "number",
+            "x-openfetch-authorization": {
+              "policies": [
+                "Orders.FinancialData"
+              ]
+            },
+            "x-openfetch-capabilities": [
+              "select",
+              "filter",
+              "sort",
+              "aggregate"
+            ],
+            "x-openfetch-operators": [
+              "eq",
+              "ne",
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "in",
+              "notIn",
+              "between",
+              "notBetween"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "OrdersSelectableField": {
+        "enum": [
+          "id",
+          "createdAt",
+          "number",
+          "status",
+          "total",
+          "customer.id",
+          "customer.country",
+          "customer.name"
+        ],
+        "type": "string"
+      },
+      "OrdersSortableField": {
+        "enum": [
+          "id",
+          "createdAt",
+          "number",
+          "status",
+          "total",
+          "customer.id",
+          "customer.country",
+          "customer.name"
+        ],
+        "type": "string"
+      }
+    }
+  },
+  "info": {
+    "title": "OpenFetch.Tests | v1",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.1",
+  "paths": {
+    "/query/capabilities": {
+      "get": {
+        "operationId": "getQueryCapabilities",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "OpenFetch"
+        ]
+      }
+    },
+    "/query/customers": {
+      "post": {
+        "description": "Customers\n\nOnly the fields listed in \u0060select\u0060 are returned; every other row property is absent. Relationship fields are nested objects. Errors are Problem Details with a stable \u0060code\u0060 and a JSON Pointer \u0060path\u0060.",
+        "operationId": "queryCustomers",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "orderBy": [
+                  {
+                    "direction": "asc",
+                    "field": "id"
+                  }
+                ],
+                "page": {
+                  "first": 10
+                },
+                "select": [
+                  "id",
+                  "country",
+                  "name"
+                ],
+                "version": "1.0"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/CustomersQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomersResult"
+                }
+              }
+            },
+            "description": "A page of rows."
+          },
+          "400": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Invalid JSON or query syntax."
+          },
+          "401": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Authentication required."
+          },
+          "403": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Unknown or inaccessible dataset."
+          },
+          "413": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Query document too large."
+          },
+          "422": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Semantically invalid query."
+          },
+          "429": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Rate or concurrency limit."
+          },
+          "500": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Unexpected execution failure."
+          },
+          "504": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Query timeout."
+          }
+        },
+        "summary": "Query customers",
+        "tags": [
+          "OpenFetch"
+        ],
+        "x-openfetch-capabilities": {
+          "aggregation": false,
+          "cursorPagination": true,
+          "distinct": false,
+          "filtering": true,
+          "offsetPagination": true,
+          "projection": true,
+          "relationships": false,
+          "sorting": true
+        },
+        "x-openfetch-complexity": {
+          "max": 150,
+          "version": 1
+        },
+        "x-openfetch-dataset": "customers",
+        "x-openfetch-limits": {
+          "defaultPageSize": 100,
+          "maxComplexity": 150,
+          "maxConditions": 50,
+          "maxFilterDepth": 6,
+          "maxInValues": 200,
+          "maxOffset": 10000,
+          "maxPageSize": 500,
+          "maxRelationshipDepth": 2,
+          "maxRelationships": 3,
+          "maxSelectedFields": 50
+        },
+        "x-openfetch-projection": "dynamic",
+        "x-openfetch-relationships": []
+      }
+    },
+    "/query/orders": {
+      "post": {
+        "description": "Queryable sales orders\n\nOnly the fields listed in \u0060select\u0060 are returned; every other row property is absent. Relationship fields are nested objects. Errors are Problem Details with a stable \u0060code\u0060 and a JSON Pointer \u0060path\u0060.",
+        "operationId": "queryOrders",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "orderBy": [
+                  {
+                    "direction": "asc",
+                    "field": "id"
+                  }
+                ],
+                "page": {
+                  "first": 10
+                },
+                "select": [
+                  "id",
+                  "createdAt",
+                  "number"
+                ],
+                "version": "1.0"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/OrdersQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdersResult"
+                }
+              }
+            },
+            "description": "A page of rows."
+          },
+          "400": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Invalid JSON or query syntax."
+          },
+          "401": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Authentication required."
+          },
+          "403": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Unknown or inaccessible dataset."
+          },
+          "413": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Query document too large."
+          },
+          "422": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Semantically invalid query."
+          },
+          "429": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Rate or concurrency limit."
+          },
+          "500": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Unexpected execution failure."
+          },
+          "504": {
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenFetchProblem"
+                }
+              }
+            },
+            "description": "Query timeout."
+          }
+        },
+        "summary": "Query orders",
+        "tags": [
+          "OpenFetch"
+        ],
+        "x-openfetch-capabilities": {
+          "aggregation": false,
+          "cursorPagination": true,
+          "distinct": false,
+          "filtering": true,
+          "offsetPagination": true,
+          "projection": true,
+          "relationships": true,
+          "sorting": true
+        },
+        "x-openfetch-complexity": {
+          "max": 150,
+          "version": 1
+        },
+        "x-openfetch-dataset": "orders",
+        "x-openfetch-limits": {
+          "defaultPageSize": 100,
+          "maxComplexity": 150,
+          "maxConditions": 50,
+          "maxFilterDepth": 6,
+          "maxInValues": 200,
+          "maxOffset": 10000,
+          "maxPageSize": 500,
+          "maxRelationshipDepth": 2,
+          "maxRelationships": 3,
+          "maxSelectedFields": 50
+        },
+        "x-openfetch-projection": "dynamic",
+        "x-openfetch-relationships": [
+          {
+            "cardinality": "one",
+            "maxDepth": 1,
+            "name": "customer",
+            "target": "customers"
+          }
+        ]
+      }
+    },
+    "/query/schema": {
+      "get": {
+        "operationId": "getQuerySchema",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "OpenFetch"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "OpenFetch"
+    }
+  ],
+  "x-openfetch-model-version": "f9e33d091f5f4051",
+  "x-openfetch-provider": {
+    "compilerVersion": "1",
+    "name": "postgresql"
+  },
+  "x-openfetch-version": "1.0"
+}

@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenFetch for ASP.NET Core: AddOpenFetch&lt;TDbContext&gt;, per-dataset query endpoints, capability and caller-specific schema endpoints, Problem Details, rate limiting.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\OpenFetch.Core\OpenFetch.Core.csproj" />

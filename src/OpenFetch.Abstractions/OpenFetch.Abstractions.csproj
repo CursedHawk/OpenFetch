@@ -1,3 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenFetch protocol contracts: exposure attributes, immutable QueryModel descriptors, canonical AST, operators and error model. No EF Core, ASP.NET Core or provider dependencies.</Description>
+  </PropertyGroup>
 
 </Project>

@@ -11,7 +11,7 @@ cache:
     files: [Directory.Packages.props]
   paths: [.nuget/]
 
-stages: [build, test]
+stages: [build, test, contract, pack, publish]
 
 build:
   stage: build
@@ -27,8 +27,47 @@ test:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
   script:
+    # Includes the OpenAPI contract test: openapi/v1.json must match the generated document with no breaking changes.
     - dotnet test -c Release --logger "junit;LogFilePath=$CI_PROJECT_DIR/TestResults/{assembly}.xml"
   artifacts:
     when: always
     reports:
       junit: TestResults/*.xml
+
+sdk:csharp:
+  stage: contract
+  needs: [test]
+  script:
+    - eng/sdk-smoke/run.sh cs
+
+sdk:typescript:
+  stage: contract
+  needs: [test]
+  image: node:24-alpine
+  cache: []
+  script:
+    - eng/sdk-smoke/run.sh ts
+
+pack:
+  stage: pack
+  needs: [build, test]
+  script:
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then VERSION_ARGS="-p:Version=${CI_COMMIT_TAG#v}"; else VERSION_ARGS="-p:VersionSuffix=ci.$CI_PIPELINE_IID"; fi
+    - dotnet pack -c Release -o artifacts $VERSION_ARGS
+  artifacts:
+    paths: [artifacts/*.nupkg, artifacts/*.snupkg]
+    expire_in: 2 weeks
+
+# Publishes to this project's GitLab NuGet registry: automatically for version tags (v0.1.0), manually for master prereleases.
+publish:
+  stage: publish
+  needs: [pack]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+.*$/
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  script:
+    - dotnet nuget add source "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/nuget/index.json" --name gitlab --username gitlab-ci-token --password "$CI_JOB_TOKEN" --store-password-in-clear-text
+    - dotnet nuget push "artifacts/*.nupkg" --source gitlab --skip-duplicate
