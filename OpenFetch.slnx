@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OpenFetch.Abstractions/OpenFetch.Abstractions.csproj" />
+    <Project Path="src/OpenFetch.AspNetCore/OpenFetch.AspNetCore.csproj" />
+    <Project Path="src/OpenFetch.Compiler.PostgreSql/OpenFetch.Compiler.PostgreSql.csproj" />
+    <Project Path="src/OpenFetch.Core/OpenFetch.Core.csproj" />
+    <Project Path="src/OpenFetch.EntityFrameworkCore/OpenFetch.EntityFrameworkCore.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OpenFetch.Tests/OpenFetch.Tests.csproj" />
+  </Folder>
+</Solution>

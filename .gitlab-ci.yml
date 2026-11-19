@@ -1,0 +1,34 @@
+# Testcontainers needs Docker: the test job uses a dind service (runner must allow privileged mode).
+image: mcr.microsoft.com/dotnet/sdk:10.0
+
+variables:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget"
+
+cache:
+  key:
+    files: [Directory.Packages.props]
+  paths: [.nuget/]
+
+stages: [build, test]
+
+build:
+  stage: build
+  script:
+    - dotnet build -c Release
+
+test:
+  stage: test
+  services:
+    - name: docker:dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - dotnet test -c Release --logger "junit;LogFilePath=$CI_PROJECT_DIR/TestResults/{assembly}.xml"
+  artifacts:
+    when: always
+    reports:
+      junit: TestResults/*.xml

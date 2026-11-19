@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\OpenFetch.Abstractions\OpenFetch.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\OpenFetch.Core\OpenFetch.Core.csproj" />
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+</Project>
