@@ -18,7 +18,13 @@ public sealed record QueryDocument(
     public FilterNode? Having { get; init; }
 
     public bool IsAggregate => !GroupBy.IsEmpty || !Aggregates.IsEmpty;
+
+    /// <summary>Collection relationships returned as nested arrays per row.</summary>
+    public ImmutableArray<ExpandNode> Expand { get; init; } = [];
 }
+
+/// <summary><c>{"relationship":"orders","select":[...],"where":{...},"orderBy":[...],"first":10}</c> on a one-to-many relationship.</summary>
+public sealed record ExpandNode(string Relationship, ImmutableArray<FieldRef> Select, FilterNode? Where, ImmutableArray<OrderNode> OrderBy, int? First, string Pointer);
 
 public enum AggregateFunction { Count, CountDistinct, Sum, Avg, Min, Max }
 
@@ -48,6 +54,10 @@ public abstract record FilterNode
 public sealed record LogicalFilter(LogicalOperator Operator, ImmutableArray<FilterNode> Children) : FilterNode;
 
 public sealed record NotFilter(FilterNode Operand) : FilterNode;
+
+/// <summary><c>{"type":"any","relationship":"orders","where":{...}}</c>: true when at least one related row matches (EXISTS).
+/// "none" is <c>not any</c>; "all" is <c>not any(not ...)</c>.</summary>
+public sealed record AnyFilter(string Relationship, FilterNode? Where) : FilterNode;
 
 public sealed record ComparisonFilter(FieldRef Left, QueryOperator Operator, QueryOperand Right) : FilterNode;
 

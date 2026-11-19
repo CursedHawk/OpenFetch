@@ -129,7 +129,8 @@ OpenFetch compiles SQL directly, so **EF global query filters (`HasQueryFilter`)
 | Top level | `version` (`"1.0"`), `select` (required), `where`, `orderBy`, `page`, `distinct`. Unknown or duplicate properties are rejected. |
 | Filters | Tagged union: `comparison` / `logical` (`and`, `or`) / `not` |
 | Operators | `eq ne gt gte lt lte in notIn between notBetween contains startsWith endsWith`, further limited per column and type. String comparisons follow the column collation, which is case-sensitive by default on PostgreSQL and case-insensitive by default on SQL Server. |
-| Relationships | Dotted paths (`customer.name`) in `select`, `where` and `orderBy`; returned as nested objects (`null` when the related row is absent or hidden). To-one only in v0.1. |
+| Relationships | To-one: dotted paths (`customer.name`) in `select`, `where` and `orderBy`; returned as nested objects (`null` when the related row is absent or hidden). |
+| Collections | One-to-many relationships are never traversed with dotted paths. Filter with `{"type":"any","relationship":"orders","where":{…}}`, which compiles to `EXISTS` with the target's row policy inside; use `not any` for "none" and `not any(not …)` for "all". Return related rows with `"expand":[{"relationship":"orders","select":[…],"where":…,"orderBy":…,"first":10}]`, which runs as a per-parent top-N split query in the same transaction, so value converters and policies still apply. Both forms use the target's own fields only. |
 | Values | Native JSON. Dates, GUIDs and enums are strings: see [docs/spec-profile.md](docs/spec-profile.md). |
 | Aggregation | Datasets opt in with `DatasetCapabilities.Aggregation`. `groupBy` takes `Group` columns; `aggregates` is a list of `{function, field?, alias}` using `count`, `countDistinct`, `sum`, `avg`, `min`, `max` over `Aggregate` columns; `having` filters on aliases or group fields. Row policies and RLS still apply before grouping. Results are identical across providers: counts and integer sums are 64-bit, and averages are `decimal(38,10)`. Paging is offset-only. |
 | Paging | `page.first` plus either `page.after` (cursor) or `page.offset` (bounded). The key is always appended as a tie-breaker, and `endCursor` is returned when every ordering field is cursor-eligible. |
@@ -217,6 +218,6 @@ dotnet nuget add source "https://gitlab.highgeek.eu/api/v4/projects/5/packages/n
 
 - **Providers:** PostgreSQL and SQL Server. On SQL Server, `distinct` queries use native NULL ordering, because ORDER BY may only reference select-list items under DISTINCT.
 - **Plan reuse:** SQL text depends only on the query shape, never on values or tenants, so the provider statement cache and the database plan cache reuse plans without a separate OpenFetch cache.
-- **Not yet supported (in progress, E12):** collection relationships, and inheritance or owned-type datasets. They are rejected at startup.
+- **Not yet supported (in progress, E12):** inheritance and owned-type datasets. They are rejected at startup.
 - **Response buffering:** responses are buffered up to `MaximumResponseBytes` (4 MiB by default) before they are sent, so a limit breach still returns a clean error status.
 - **Rate limiting:** `AddOpenFetchRateLimiting` limits concurrency only. To limit request rate, attach your own policy to the builder that `MapOpenFetch` returns.

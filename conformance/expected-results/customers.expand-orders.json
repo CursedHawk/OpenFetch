@@ -1,0 +1,61 @@
+{
+  "data": [
+    {
+      "id": "aaaaaaaa-1111-0000-0000-000000000101",
+      "name": "Customer A1",
+      "orders": [
+        {
+          "number": "SO-A-0009",
+          "status": "processing",
+          "total": 900.50
+        },
+        {
+          "number": "SO-A-0006",
+          "status": "shipped",
+          "total": 600.50
+        }
+      ]
+    },
+    {
+      "id": "aaaaaaaa-1111-0000-0000-000000000102",
+      "name": "Customer A2",
+      "orders": [
+        {
+          "number": "SO-A-0004",
+          "status": "open",
+          "total": 400.50
+        },
+        {
+          "number": "SO-A-0001",
+          "status": "processing",
+          "total": 100.50
+        }
+      ]
+    },
+    {
+      "id": "aaaaaaaa-1111-0000-0000-000000000103",
+      "name": "Customer A3",
+      "orders": [
+        {
+          "number": "SO-A-0008",
+          "status": "open",
+          "total": 800.50
+        },
+        {
+          "number": "SO-A-0005",
+          "status": "processing",
+          "total": 500.50
+        }
+      ]
+    }
+  ],
+  "page": {
+    "count": 3,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "customers",
+    "modelVersion": "MODEL"
+  }
+}

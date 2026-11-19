@@ -256,16 +256,16 @@ public static partial class QueryModelBuilder
                 errors.Add($"{at}: target entity {nav.TargetClrType.Name} is not an exposed dataset.");
                 continue;
             }
-            if (nav.IsCollection)
-            {
-                errors.Add($"{at}: collection relationships are not supported in this version.");
-                continue;
-            }
 
             var join = nav.Join.Select(j => (Source: dataset.FindProperty(j.Source), Target: target.FindProperty(j.Target))).ToList();
             if (join.Count == 0 || join.Any(j => j.Source is null || j.Target is null))
             {
                 errors.Add($"{at}: join columns are missing or of unsupported types.");
+                continue;
+            }
+            if (nav.IsCollection && join.Count != 1)
+            {
+                errors.Add($"{at}: collection relationships need a single-column foreign key.");
                 continue;
             }
 
@@ -280,7 +280,7 @@ public static partial class QueryModelBuilder
                 PublicName = name,
                 PropertyName = nav.Name,
                 TargetDataset = target.PublicName,
-                Cardinality = Cardinality.One,
+                Cardinality = nav.IsCollection ? Cardinality.Many : Cardinality.One,
                 Capabilities = caps,
                 MaximumDepth = Math.Min(mc?.MaximumDepth ?? (attr is { MaximumDepth: > 0 } ? attr.MaximumDepth : dataset.MaximumRelationshipDepth), limits.MaximumRelationshipDepth),
                 Policies = Policies(attr?.AuthorizationPolicy, mc?.Policies),

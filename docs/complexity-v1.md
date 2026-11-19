@@ -9,6 +9,8 @@ Spec §22. The score is computed on the **secured** query, after row-policy inje
 | Each relationship join | 15 |
 | `distinct` | 20 |
 | Each `groupBy` field | 15 |
+| Each `any` filter (EXISTS over a collection) | 30 + its inner conditions |
+| Each `expand` (collection split query) | 30 + 1 per selected field + its conditions |
 | Each aggregate | 10 |
 | Each comparison (client, `having`, or policy) | 2 |
 | Each `or` group (client or policy) | 5 |

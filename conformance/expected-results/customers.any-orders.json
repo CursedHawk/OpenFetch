@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "name": "Customer A2"
+    },
+    {
+      "name": "Customer A3"
+    }
+  ],
+  "page": {
+    "count": 2,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "customers",
+    "modelVersion": "MODEL"
+  }
+}

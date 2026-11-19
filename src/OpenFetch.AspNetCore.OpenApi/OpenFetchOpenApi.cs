@@ -157,6 +157,17 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
             ["page"] = Ref(x + "Page"),
         };
 
+        var collections = d.Relationships.Values
+            .Where(r => r.Cardinality == Cardinality.Many && allowed(r.Policies) && Visible(model, r.TargetDataset))
+            .OrderBy(r => r.PublicName, StringComparer.Ordinal).ToList();
+        var anyCollections = collections.Where(r => r.Can(RelationshipCapabilities.Filter)).ToList();
+        var expandable = collections.Where(r => r.Can(RelationshipCapabilities.Select)).ToList();
+        // Nested filters/expansions use the target's own fields; a single target gets a precise $ref, several get a loose schema.
+        IOpenApiSchema TargetFilter(List<RelationshipDescriptor> rels) =>
+            rels.Select(r => r.TargetDataset).Distinct().Count() == 1 && model.Datasets[rels[0].TargetDataset].Capabilities.HasFlag(DatasetCapabilities.Filter)
+                ? Ref(QueryModelBuilder.ComponentName(rels[0].TargetDataset) + "Filter")
+                : new OpenApiSchema { Type = JsonSchemaType.Object, Description = "A filter over the related dataset's own fields." };
+
         if (d.Capabilities.HasFlag(DatasetCapabilities.Filter) && filterable.Count > 0)
         {
             query["where"] = Ref(x + "Filter");
@@ -189,20 +200,41 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
                 ["children"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref(x + "Filter"), MinItems = 1 },
             }, "type", "operator", "children");
             schemas[x + "NotFilter"] = Object(new() { ["type"] = Const("not"), ["operand"] = Ref(x + "Filter") }, "type", "operand");
+            var branches = new Dictionary<string, OpenApiSchemaReference>
+            {
+                ["comparison"] = Ref(x + "ComparisonFilter"),
+                ["logical"] = Ref(x + "LogicalFilter"),
+                ["not"] = Ref(x + "NotFilter"),
+            };
+            if (anyCollections.Count > 0)
+            {
+                schemas[x + "AnyFilter"] = Object(new()
+                {
+                    ["type"] = Const("any"),
+                    ["relationship"] = Enum(anyCollections.Select(r => r.PublicName)),
+                    ["where"] = TargetFilter(anyCollections),
+                }, "type", "relationship");
+                schemas[x + "AnyFilter"].Description = "True when at least one related row matches 'where' (none = not any; all = not any(not ...)).";
+                branches["any"] = Ref(x + "AnyFilter");
+            }
             schemas[x + "Filter"] = new OpenApiSchema
             {
-                OneOf = [Ref(x + "ComparisonFilter"), Ref(x + "LogicalFilter"), Ref(x + "NotFilter")],
-                Discriminator = new OpenApiDiscriminator
-                {
-                    PropertyName = "type",
-                    Mapping = new Dictionary<string, OpenApiSchemaReference>
-                    {
-                        ["comparison"] = Ref(x + "ComparisonFilter"),
-                        ["logical"] = Ref(x + "LogicalFilter"),
-                        ["not"] = Ref(x + "NotFilter"),
-                    },
-                },
+                OneOf = [.. branches.Values],
+                Discriminator = new OpenApiDiscriminator { PropertyName = "type", Mapping = branches },
             };
+        }
+
+        if (expandable.Count > 0)
+        {
+            schemas[x + "Expand"] = Object(new()
+            {
+                ["relationship"] = Enum(expandable.Select(r => r.PublicName)),
+                ["select"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Scalar(JsonSchemaType.String), MinItems = 1, Description = "Fields of the related dataset (no dotted paths)." },
+                ["where"] = TargetFilter(expandable),
+                ["orderBy"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Object(new() { ["field"] = Scalar(JsonSchemaType.String), ["direction"] = Enum(["asc", "desc"]) }, "field") },
+                ["first"] = new OpenApiSchema { Type = JsonSchemaType.Integer, Minimum = "1", Description = "Rows per parent (default: the related dataset's default page size)." },
+            }, "relationship", "select");
+            query["expand"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref(x + "Expand") };
         }
 
         schemas[x + "Order"] = Object(new()
@@ -248,7 +280,14 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
         // §18.5: a superset row; every property optional because only selected fields are returned.
         var row = new Dictionary<string, IOpenApiSchema>();
         foreach (var c in d.ExposedColumns.Where(c => c.Can(ColumnCapabilities.Select) && allowed(c.Policies))) row[c.PublicName] = Column(c);
-        foreach (var r in d.Relationships.Values.Where(r => r.Can(RelationshipCapabilities.Select) && allowed(r.Policies) && Visible(model, r.TargetDataset)).OrderBy(r => r.PublicName, StringComparer.Ordinal))
+        foreach (var r in expandable)
+            row[r.PublicName] = new OpenApiSchema
+            {
+                Type = JsonSchemaType.Array,
+                Items = Ref(QueryModelBuilder.ComponentName(r.TargetDataset) + "Row"),
+                Description = $"Present when expanded: related {r.TargetDataset} rows (only the expansion's selected fields).",
+            };
+        foreach (var r in d.Relationships.Values.Where(r => r.Cardinality == Cardinality.One && r.Can(RelationshipCapabilities.Select) && allowed(r.Policies) && Visible(model, r.TargetDataset)).OrderBy(r => r.PublicName, StringComparer.Ordinal))
         {
             var target = QueryModelBuilder.ComponentName(r.TargetDataset);
             row[r.PublicName] = new OpenApiSchema
@@ -272,7 +311,9 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
         foreach (var (name, fields) in d.Projections.Where(p => ProjectionVisible(model, d, p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             var px = x + QueryModelBuilder.ComponentName(name);
-            var fixedQuery = query.Where(p => p.Key != "select").ToDictionary(p => p.Key, p => p.Value);
+            // Projections have a fixed shape: no select, aggregation or expansion (security review).
+            string[] notInProjection = ["select", "groupBy", "aggregates", "having", "expand"];
+            var fixedQuery = query.Where(p => !notInProjection.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value);
             schemas[px + "Query"] = Object(fixedQuery);
             schemas[px + "Query"].Description = $"Query for the fixed '{name}' projection of {d.PublicName}; 'select' is defined by the server.";
             schemas[px + "Row"] = ProjectionRow(model, d, fields.Select(f => (Path: f, Segments: f.Split('.'))).ToList(), 0);
@@ -312,7 +353,7 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
         void Walk(DatasetDescriptor d, string prefix, int depth)
         {
             foreach (var c in d.ExposedColumns.Where(c => c.Can(cap) && allowed(c.Policies))) result.Add(new(prefix + c.PublicName, c));
-            foreach (var r in d.Relationships.Values.Where(r => r.Can(rel) && allowed(r.Policies) && allowed(model.Datasets[r.TargetDataset].Policies)
+            foreach (var r in d.Relationships.Values.Where(r => r.Cardinality == Cardinality.One && r.Can(rel) && allowed(r.Policies) && allowed(model.Datasets[r.TargetDataset].Policies)
                          && depth + 1 <= Math.Min(r.MaximumDepth, root.MaximumRelationshipDepth)).OrderBy(r => r.PublicName, StringComparer.Ordinal))
                 Walk(model.Datasets[r.TargetDataset], prefix + r.PublicName + ".", depth + 1);
         }
@@ -445,7 +486,7 @@ public sealed class OpenFetchOperationTransformer(QueryEngine engine, Func<IEnum
             ? OpenFetchDocumentTransformer.Ext("dynamic")
             : OpenFetchDocumentTransformer.Ext(new JsonObject { ["name"] = meta.Projection, ["fields"] = new JsonArray([.. d.Projections[meta.Projection].Select(f => (JsonNode)f)]) });
         ext["x-openfetch-relationships"] = OpenFetchDocumentTransformer.Ext(new JsonArray([.. relationships.OrderBy(r => r.PublicName, StringComparer.Ordinal)
-            .Select(r => (JsonNode)new JsonObject { ["name"] = r.PublicName, ["target"] = r.TargetDataset, ["cardinality"] = "one", ["maxDepth"] = r.MaximumDepth })]));
+            .Select(r => (JsonNode)new JsonObject { ["name"] = r.PublicName, ["target"] = r.TargetDataset, ["cardinality"] = r.Cardinality == Cardinality.One ? "one" : "many", ["maxDepth"] = r.MaximumDepth })]));
         if (!d.Policies.IsEmpty) ext["x-openfetch-authorization"] = OpenFetchDocumentTransformer.Policies(d.Policies);
         return Task.CompletedTask;
     }

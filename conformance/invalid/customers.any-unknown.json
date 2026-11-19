@@ -1,0 +1,9 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "any",
+    "relationship": "nope"
+  }
+}

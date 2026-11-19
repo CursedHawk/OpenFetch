@@ -46,10 +46,24 @@ public static class Corpus
         return result.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
     }
 
-    public static string Plan(QueryPlan plan)
+    public static string Plan(QueryPlan plan) => Command(plan.CommandText, plan.Parameters);
+
+    /// <summary>Main plan plus each expansion's split query (for a single placeholder parent key).</summary>
+    public static string Plan(PreparedQuery prepared, IQueryCompiler compiler)
     {
-        var sb = new StringBuilder(plan.CommandText).Append('\n');
-        foreach (var p in plan.Parameters) sb.Append("-- @").Append(p.Name).Append(" = ").Append(Format(p.Value)).Append('\n');
+        var sb = new StringBuilder(Plan(prepared.Plan));
+        foreach (var e in prepared.Query.Expansions)
+        {
+            var c = compiler.CompileExpansion(e, [Activator.CreateInstance(e.ParentKey.Column.ClrType)!]);
+            sb.Append("-- expansion ").Append(e.Name).Append('\n').Append(Command(c.CommandText, c.Parameters));
+        }
+        return sb.ToString();
+    }
+
+    private static string Command(string text, IEnumerable<QueryParameter> parameters)
+    {
+        var sb = new StringBuilder(text).Append('\n');
+        foreach (var p in parameters) sb.Append("-- @").Append(p.Name).Append(" = ").Append(Format(p.Value)).Append('\n');
         return sb.ToString();
     }
 
@@ -79,7 +93,7 @@ public class ConformanceTests
         var json = Corpus.Read("valid", name);
         Corpus.Snapshot("expected-ast", name + ".json", AstWriter.ToJson(QueryParser.Parse(json, TestModel.Default.Limits)) + "\n");
         var prepared = await Engine.PrepareAsync(Corpus.Dataset(name), json, TestEngine.Context(SeedData.TenantA));
-        Corpus.Snapshot("expected-plan", name + ".sql", Corpus.Plan(prepared.Plan));
+        Corpus.Snapshot("expected-plan", name + ".sql", Corpus.Plan(prepared, Engine.Compiler));
     }
 
     [Theory, MemberData(nameof(Corpus.Invalid), MemberType = typeof(Corpus))]

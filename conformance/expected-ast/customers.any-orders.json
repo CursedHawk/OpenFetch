@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "select": [
+    "name"
+  ],
+  "where": {
+    "any": "orders",
+    "where": {
+      "field": "status",
+      "operator": "eq",
+      "value": "string:open"
+    }
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

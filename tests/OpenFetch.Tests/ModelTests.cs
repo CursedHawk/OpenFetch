@@ -13,7 +13,7 @@ public class ModelTests
         Assert.Contains(orders.AllColumns, c => c.PropertyName == "TenantId" && !c.Exposed);
         Assert.Equal(["customer"], orders.Relationships.Keys);
         Assert.Equal("customers", orders.Relationships["customer"].TargetDataset);
-        Assert.Empty(TestModel.Default.Datasets["customers"].Relationships); // Customer.Orders is not opted in
+        Assert.Equal(Cardinality.Many, TestModel.Default.Datasets["customers"].Relationships["orders"].Cardinality);
         Assert.Equal(["Id"], orders.Key.Select(k => k.PropertyName));
     }
 
@@ -63,7 +63,7 @@ public class ModelTests
         var hiddenAttr = TestModel.Build(o => o.Dataset<Order>().Column(x => x.TenantId).Expose("tenant"));
         Assert.False(hiddenAttr.Datasets["orders"].Columns.ContainsKey("tenant")); // [QueryHidden] is absolute
 
-        var noDataset = TestModel.Build(o => { o.Dataset<Order>().Hide(); });
+        var noDataset = TestModel.Build(o => { o.Dataset<Order>().Hide(); o.Dataset<Customer>().Relationship(x => x.Orders).Hide(); });
         Assert.False(noDataset.Datasets.ContainsKey("orders"));
     }
 
@@ -97,11 +97,10 @@ public class ModelTests
             o.Dataset<Order>().Column(x => x.Status).Operators(QueryOperator.Contains); // invalid for enum
             o.Dataset<Order>().Column(x => x.Number).Expose("bad name").Expose("other"); // conflicting + invalid name
             o.Dataset<Customer>().Expose("orders");                               // duplicate dataset name
-            o.Dataset<Customer>().Relationship(x => x.Orders).Expose();           // collection relationship
             o.Limits = o.Limits with { MaximumInValues = 0 };
         }));
         string[] expected = ["invalid public name", "cursor columns must be non-nullable", "'contains' is not valid", "conflicting names", "Duplicate dataset name",
-            "collection relationships", "limits must be positive"];
+            "limits must be positive"];
         foreach (var e in expected) Assert.Contains(ex.Errors, x => x.Contains(e));
     }
 

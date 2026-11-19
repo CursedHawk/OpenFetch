@@ -1,0 +1,13 @@
+{
+  "select": [
+    "id"
+  ],
+  "expand": [
+    {
+      "relationship": "orders",
+      "select": [
+        "customer.name"
+      ]
+    }
+  ]
+}

@@ -110,7 +110,34 @@ public sealed class QueryEngine(
     {
         var joins = ImmutableArray.CreateBuilder<ResolvedJoin>();
         foreach (var j in q.Joins) joins.Add(j with { Policy = await PolicyAsync(j.Target, j.Alias, context, ct) });
-        return q with { Policy = await PolicyAsync(q.Dataset, "t0", context, ct), Joins = joins.ToImmutable() };
+        var expansions = ImmutableArray.CreateBuilder<ResolvedExpansion>();
+        foreach (var e in q.Expansions)
+            expansions.Add(e with { Policy = await PolicyAsync(e.Target, e.OrderBy[0].Field.Alias, context, ct), Where = await SecureFilterAsync(e.Where, context, ct) });
+        return q with
+        {
+            Policy = await PolicyAsync(q.Dataset, "t0", context, ct),
+            Joins = joins.ToImmutable(),
+            Where = await SecureFilterAsync(q.Where, context, ct),
+            Expansions = expansions.ToImmutable(),
+        };
+    }
+
+    /// <summary>Puts each related dataset's trusted policy inside its EXISTS subquery (nested 'any' included).</summary>
+    private async ValueTask<ResolvedFilter?> SecureFilterAsync(ResolvedFilter? f, QuerySecurityContext context, CancellationToken ct)
+    {
+        switch (f)
+        {
+            case ResolvedLogical l:
+                var children = ImmutableArray.CreateBuilder<ResolvedFilter>();
+                foreach (var c in l.Children) children.Add((await SecureFilterAsync(c, context, ct))!);
+                return l with { Children = children.ToImmutable() };
+            case ResolvedNot n:
+                return n with { Operand = (await SecureFilterAsync(n.Operand, context, ct))! };
+            case ResolvedExists x:
+                return x with { Policy = await PolicyAsync(x.Target, x.Alias, context, ct), Where = await SecureFilterAsync(x.Where, context, ct) };
+            default:
+                return f;
+        }
     }
 
     private async ValueTask<ResolvedFilter?> PolicyAsync(DatasetDescriptor dataset, string alias, QuerySecurityContext context, CancellationToken ct)
@@ -205,10 +232,24 @@ public sealed class QueryEngine(
                 await using (var setup = Command(connection, tx, setupCommand))
                     await setup.ExecuteNonQueryAsync(ct);
 
-            int rows;
+            var columns = prepared.Plan.ResultColumns;
+            var buffered = new List<object?[]>();
+            var hasNext = false;
             await using (var command = Command(connection, tx, prepared.Plan.Command))
             await using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct))
-                rows = await WriteAsync(reader, prepared, output, ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    if (buffered.Count == prepared.Query.PageSize) { hasNext = true; break; }
+                    var row = new object?[columns.Length];
+                    for (var i = 0; i < columns.Length; i++) row[i] = ValueReader.Read(reader, i, columns[i].Field.Column);
+                    buffered.Add(row);
+                }
+
+            var expanded = new List<Dictionary<object, List<object?[]>>>();
+            foreach (var e in prepared.Query.Expansions)
+                expanded.Add(await ExpandAsync(connection, tx, e, columns, buffered, ct));
+
+            var rows = Write(prepared, buffered, hasNext, expanded, output);
 
             await tx.CommitAsync(ct);
             Rows.Add(rows, tags);
@@ -265,30 +306,65 @@ public sealed class QueryEngine(
         return command;
     }
 
-    private async Task<int> WriteAsync(DbDataReader reader, PreparedQuery p, IBufferWriter<byte> output, CancellationToken ct)
+    /// <summary>Second query for one expansion over all parent keys of the page (same transaction, same security context).</summary>
+    private async Task<Dictionary<object, List<object?[]>>> ExpandAsync(DbConnection connection, DbTransaction tx, ResolvedExpansion e,
+        ImmutableArray<ResultColumn> columns, List<object?[]> rows, CancellationToken ct)
+    {
+        var keyIndex = columns.ToList().FindIndex(c => c.Role == ResultRole.ExpandKey && c.Field.Path == e.ParentKey.Path);
+        var keys = rows.Select(r => r[keyIndex]).OfType<object>().Distinct().ToList();
+        var result = new Dictionary<object, List<object?[]>>();
+        if (keys.Count == 0) return result;
+        await using var command = Command(connection, tx, compiler.CompileExpansion(e, keys));
+        await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var key = ValueReader.Read(reader, 0, e.ForeignKey)!;
+            var values = new object?[e.Select.Length];
+            for (var i = 0; i < values.Length; i++) values[i] = ValueReader.Read(reader, i + 1, e.Select[i].Column);
+            if (!result.TryGetValue(key, out var list)) result[key] = list = [];
+            list.Add(values);
+        }
+        return result;
+    }
+
+    private int Write(PreparedQuery p, List<object?[]> rows, bool hasNext, List<Dictionary<object, List<object?[]>>> expanded, IBufferWriter<byte> output)
     {
         var columns = p.Plan.ResultColumns;
         var tree = OutputTree.Build(columns);
+        var expansions = p.Query.Expansions;
+        var keyIndexes = expansions.Select(e => columns.ToList().FindIndex(c => c.Role == ResultRole.ExpandKey && c.Field.Path == e.ParentKey.Path)).ToArray();
         var orderIndexes = p.Query.CursorCapable
             ? p.Query.OrderBy.Select(o => columns.ToList().FindIndex(c => c.Role != ResultRole.JoinKey && ResultColumn.Same(c.Field, o.Field))).ToImmutableArray()
             : [];
         var max = model.Limits.MaximumResponseBytes;
         var counter = new CountingWriter(output);
         using var w = new Utf8JsonWriter(counter);
-        var row = new object?[columns.Length];
-        object?[]? last = null;
-        var count = 0;
-        var hasNext = false;
+        var count = rows.Count;
+        var last = rows.LastOrDefault();
 
         w.WriteStartObject();
         w.WriteStartArray("data");
-        while (await reader.ReadAsync(ct))
+        foreach (var row in rows)
         {
-            if (count == p.Query.PageSize) { hasNext = true; break; }
-            for (var i = 0; i < columns.Length; i++) row[i] = ValueReader.Read(reader, i, columns[i].Field.Column);
-            tree.Write(w, row);
-            count++;
-            last = (object?[])row.Clone();
+            tree.Write(w, row, expansions.IsEmpty ? null : writer =>
+            {
+                for (var x = 0; x < expansions.Length; x++)
+                {
+                    writer.WriteStartArray(expansions[x].Name);
+                    if (row[keyIndexes[x]] is { } key && expanded[x].TryGetValue(key, out var children))
+                        foreach (var child in children)
+                        {
+                            writer.WriteStartObject();
+                            for (var i = 0; i < child.Length; i++)
+                            {
+                                writer.WritePropertyName(expansions[x].Select[i].Path);
+                                ValueWriter.Write(writer, child[i], expansions[x].Select[i].Column);
+                            }
+                            writer.WriteEndObject();
+                        }
+                    writer.WriteEndArray();
+                }
+            });
             if (w.BytesCommitted + w.BytesPending > max) throw QueryErrors.ResponseTooLarge(max);
         }
         w.WriteEndArray();
@@ -303,7 +379,7 @@ public sealed class QueryEngine(
         w.WriteString("modelVersion", model.Version);
         w.WriteEndObject();
         w.WriteEndObject();
-        await w.FlushAsync(ct);
+        w.Flush();
         if (counter.Written > max) throw QueryErrors.ResponseTooLarge(max);
         Bytes.Record(counter.Written, new TagList { { "openfetch.dataset", p.Query.Dataset.PublicName } });
         return count;
@@ -329,7 +405,7 @@ public sealed class QueryEngine(
             for (var i = 0; i < columns.Length; i++)
             {
                 var c = columns[i];
-                if (c.Role == ResultRole.Cursor) continue;
+                if (c.Role is ResultRole.Cursor or ResultRole.ExpandKey) continue;
                 var segments = c.Field.Path.Split('.');
                 var node = root;
                 var depth = c.Role == ResultRole.JoinKey ? segments.Length : segments.Length - 1;
@@ -345,10 +421,11 @@ public sealed class QueryEngine(
             return root;
         }
 
-        public void Write(Utf8JsonWriter w, object?[] row)
+        public void Write(Utf8JsonWriter w, object?[] row, Action<Utf8JsonWriter>? extra = null)
         {
             w.WriteStartObject();
             WriteBody(w, row);
+            extra?.Invoke(w);
             w.WriteEndObject();
         }
 
@@ -429,6 +506,7 @@ public static class Complexity
         var score = 1 + q.Select.Count(f => f.Aggregate is null) + q.Joins.Length * 15 + (q.Distinct ? 20 : 0);
         score += q.GroupBy.Length * 15 + q.Select.Count(f => f.Aggregate is not null) * 10;
         score += Filter(q.Where, client: true) + Filter(q.Having, client: true) + Filter(q.Policy, client: false) + q.Joins.Sum(j => Filter(j.Policy, client: false));
+        score += q.Expansions.Sum(e => 30 + e.Select.Length + Filter(e.Where, client: true) + Filter(e.Policy, client: false));
         // Root key columns are served by the primary-key index (and are the appended tie-breaker), so they are never charged.
         // Grouped results are sorted after aggregation, so ordering adds no per-row index cost there.
         if (!q.IsAggregate)
@@ -441,6 +519,7 @@ public static class Complexity
         null => 0,
         ResolvedLogical l => (l.Operator == LogicalOperator.Or ? 5 : 0) + l.Children.Sum(c => Filter(c, client)),
         ResolvedNot n => Filter(n.Operand, client),
+        ResolvedExists x => 30 + Filter(x.Where, client) + Filter(x.Policy, client: false),
         ResolvedComparison c => 2
             + (c.Operator is QueryOperator.Contains or QueryOperator.EndsWith ? 25 : 0)
             + (client && c.Field.Aggregate is null && !c.Field.Column.Indexed ? 20 : 0),
@@ -463,6 +542,14 @@ internal static class Keys
         sb.Append("|w:"); Filter(sb, q.Where);
         sb.Append("|p:"); Filter(sb, q.Policy);
         foreach (var j in q.Joins) { sb.Append("|jp:"); Filter(sb, j.Policy); }
+        foreach (var e in q.Expansions)
+        {
+            sb.Append("|x:").Append(e.Name).Append(':').Append(string.Join(',', e.Select.Select(f => f.Path))).Append(':').Append(e.Limit).Append("|xw:");
+            Filter(sb, e.Where);
+            sb.Append("|xp:");
+            Filter(sb, e.Policy);
+            foreach (var o in e.OrderBy) sb.Append("|xo:").Append(o.Field.Path).Append(o.Direction == SortDirection.Ascending ? '+' : '-');
+        }
         foreach (var o in q.OrderBy) sb.Append("|o:").Append(o.Field.Alias).Append('.').Append(o.Field.Path).Append(o.Direction == SortDirection.Ascending ? '+' : '-');
         return Hash(sb.ToString());
     }
@@ -475,6 +562,8 @@ internal static class Keys
           .Append(ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
         Values(sb, q.Policy);
         foreach (var j in q.Joins) Values(sb, j.Policy);
+        ExistsPolicies(sb, q.Where);
+        foreach (var e in q.Expansions) { Values(sb, e.Policy); ExistsPolicies(sb, e.Where); }
         return Hash(sb.ToString());
     }
 
@@ -489,6 +578,7 @@ internal static class Keys
                 sb.Append(')');
                 break;
             case ResolvedNot n: sb.Append("not("); Filter(sb, n.Operand); sb.Append(')'); break;
+            case ResolvedExists x: sb.Append("any:").Append(x.Relationship.PublicName).Append('('); Filter(sb, x.Policy); sb.Append(';'); Filter(sb, x.Where); sb.Append(')'); break;
             case ResolvedComparison c:
                 sb.Append(c.Field.Alias).Append('.').Append(c.Field.Column.PropertyName).Append(' ').Append(c.Operator).Append(' ')
                   .Append(c.Right switch
@@ -503,12 +593,24 @@ internal static class Keys
         }
     }
 
+    /// <summary>Trusted policy values inside EXISTS subqueries (client values never enter the scope).</summary>
+    private static void ExistsPolicies(StringBuilder sb, ResolvedFilter? f)
+    {
+        switch (f)
+        {
+            case ResolvedLogical l: foreach (var c in l.Children) ExistsPolicies(sb, c); break;
+            case ResolvedNot n: ExistsPolicies(sb, n.Operand); break;
+            case ResolvedExists x: Values(sb, x.Policy); ExistsPolicies(sb, x.Where); break;
+        }
+    }
+
     private static void Values(StringBuilder sb, ResolvedFilter? f)
     {
         switch (f)
         {
             case ResolvedLogical l: foreach (var c in l.Children) Values(sb, c); break;
             case ResolvedNot n: Values(sb, n.Operand); break;
+            case ResolvedExists x: Values(sb, x.Policy); break;
             case ResolvedComparison { Right: ResolvedConstant k }: sb.Append('|').Append(Convert.ToString(k.Value, CultureInfo.InvariantCulture)); break;
             case ResolvedComparison { Right: ResolvedList l }: foreach (var v in l.Values) sb.Append('|').Append(Convert.ToString(v, CultureInfo.InvariantCulture)); break;
         }

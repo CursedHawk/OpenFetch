@@ -1,0 +1,15 @@
+{
+  "select": [
+    "name"
+  ],
+  "where": {
+    "type": "any",
+    "relationship": "orders",
+    "where": {
+      "type": "comparison",
+      "field": "status",
+      "operator": "eq",
+      "value": "open"
+    }
+  }
+}

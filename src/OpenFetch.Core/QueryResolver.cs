@@ -13,6 +13,7 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
     private readonly QueryLimits _limits = model.Limits;
     private readonly List<ResolvedJoin> _joins = [];
     private int _conditions;
+    private int _subqueries;
 
     public ResolvedQuery Resolve(QueryDocument doc)
     {
@@ -22,6 +23,10 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         var select = doc.Select.Select(f => Field(f, Usage.Select)).ToImmutableArray();
         foreach (var dup in doc.Select.GroupBy(f => f.Path).Where(g => g.Count() > 1))
             throw QueryErrors.InvalidQuery($"Field '{dup.Key}' is selected more than once.", dup.Last().Pointer);
+        var expansions = doc.Expand.Select(Expansion).ToImmutableArray();
+        foreach (var (e, i) in expansions.Select((e, i) => (e, i)))
+            if (expansions.Take(i).Any(x => x.Name == e.Name) || select.Any(s => s.Path.Split('.')[0] == e.Name))
+                throw QueryErrors.InvalidQuery($"'{e.Name}' is already part of the result.", doc.Expand[i].Pointer + "/relationship");
 
         ResolvedFilter? where = null;
         if (doc.Where is not null)
@@ -44,7 +49,7 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
             order.Add(new ResolvedOrder(field, o.Direction));
         }
 
-        if (_joins.Count > _limits.MaximumRelationships)
+        if (_joins.Count + _subqueries > _limits.MaximumRelationships)
             throw QueryErrors.TooComplex($"At most {_limits.MaximumRelationships} relationships may be used.");
 
         // Deterministic ordering (§20.1): distinct rows are unique over the selected fields, otherwise the key breaks ties.
@@ -66,6 +71,7 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
             Offset = Offset(doc.Page),
             Distinct = Distinct(doc),
             CursorCapable = CursorAllowed(doc.Page, cursorCapable) && cursorCapable,
+            Expansions = expansions,
         };
     }
 
@@ -116,7 +122,8 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         var alias = "t0";
         for (var depth = 1; depth < segments.Length; depth++)
         {
-            if (!dataset.Relationships.TryGetValue(segments[depth - 1], out var rel) || !rel.Can(relationCap) || !allowed(rel.Policies)
+            // Dotted paths are to-one only; collections are reached through 'any' filters and 'expand'.
+            if (!dataset.Relationships.TryGetValue(segments[depth - 1], out var rel) || rel.Cardinality == Cardinality.Many || !rel.Can(relationCap) || !allowed(rel.Policies)
                 || depth > rel.MaximumDepth || depth > root.MaximumRelationshipDepth
                 || !model.Datasets.TryGetValue(rel.TargetDataset, out var target) || !allowed(target.Policies))
                 throw QueryErrors.UnknownField(root.PublicName, f.Path, f.Pointer);
@@ -131,15 +138,72 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         return new ResolvedField(alias, f.Path, column);
     }
 
-    private ResolvedFilter Filter(FilterNode node) => Filter(node, f => Field(f, Usage.Filter));
+    private ResolvedFilter Filter(FilterNode node) => Filter(node, f => Field(f, Usage.Filter), root, "t0");
 
-    private ResolvedFilter Filter(FilterNode node, Func<FieldRef, ResolvedField> field) => node switch
+    private ResolvedFilter Filter(FilterNode node, Func<FieldRef, ResolvedField> field, DatasetDescriptor scope, string alias) => node switch
     {
-        LogicalFilter l => new ResolvedLogical(l.Operator, [.. l.Children.Select(c => Filter(c, field))]),
-        NotFilter n => new ResolvedNot(Filter(n.Operand, field)),
+        LogicalFilter l => new ResolvedLogical(l.Operator, [.. l.Children.Select(c => Filter(c, field, scope, alias))]),
+        NotFilter n => new ResolvedNot(Filter(n.Operand, field, scope, alias)),
         ComparisonFilter c => Comparison(c, field),
+        AnyFilter a => Any(a, scope, alias),
         _ => throw new InvalidOperationException(),
     };
+
+    /// <summary>Resolves a one-to-many relationship of <paramref name="scope"/> for 'any' or 'expand'; unusable ones look unknown.</summary>
+    private (RelationshipDescriptor Relationship, DatasetDescriptor Target) Collection(DatasetDescriptor scope, string name, RelationshipCapabilities cap, string pointer)
+    {
+        if (!scope.Relationships.TryGetValue(name, out var rel) || rel.Cardinality != Cardinality.Many || !rel.Can(cap) || !allowed(rel.Policies)
+            || !model.Datasets.TryGetValue(rel.TargetDataset, out var target) || !allowed(target.Policies))
+            throw QueryErrors.InvalidRelationship(root.PublicName, name, pointer);
+        if (++_subqueries + _joins.Count > _limits.MaximumRelationships)
+            throw QueryErrors.TooComplex($"At most {_limits.MaximumRelationships} relationships may be used.", pointer);
+        return (rel, target);
+    }
+
+    /// <summary>A field of a collection target: its own columns only (no dotted paths inside subqueries).</summary>
+    private ResolvedField LocalField(DatasetDescriptor dataset, string alias, FieldRef f, ColumnCapabilities cap)
+    {
+        if (!dataset.Columns.TryGetValue(f.Path, out var column) || !column.Can(cap) || !allowed(column.Policies))
+            throw QueryErrors.UnknownField(dataset.PublicName, f.Path, f.Pointer);
+        return new ResolvedField(alias, f.Path, column);
+    }
+
+    private ResolvedExists Any(AnyFilter a, DatasetDescriptor scope, string parentAlias)
+    {
+        var (rel, target) = Collection(scope, a.Relationship, RelationshipCapabilities.Filter, a.Pointer + "/relationship");
+        if (a.Where is not null && !target.Capabilities.HasFlag(DatasetCapabilities.Filter))
+            throw QueryErrors.UnsupportedFeature("Filtering is not enabled for the related dataset.", a.Pointer + "/where");
+        _conditions++;
+        var alias = "s" + _subqueries;
+        var where = a.Where is null ? null : Filter(a.Where, f => LocalField(target, alias, f, ColumnCapabilities.Filter), target, alias);
+        return new ResolvedExists(alias, parentAlias, rel, target, where);
+    }
+
+    private ResolvedExpansion Expansion(ExpandNode e)
+    {
+        var (rel, target) = Collection(root, e.Relationship, RelationshipCapabilities.Select, e.Pointer + "/relationship");
+        var alias = "e" + _subqueries;
+        var select = e.Select.Select(f => LocalField(target, alias, f, ColumnCapabilities.Select)).ToImmutableArray();
+        foreach (var dup in e.Select.GroupBy(f => f.Path).Where(g => g.Count() > 1))
+            throw QueryErrors.InvalidQuery($"Field '{dup.Key}' is selected more than once.", dup.Last().Pointer);
+
+        ResolvedFilter? where = null;
+        if (e.Where is not null)
+        {
+            if (!target.Capabilities.HasFlag(DatasetCapabilities.Filter)) throw QueryErrors.UnsupportedFeature("Filtering is not enabled for the related dataset.", e.Pointer + "/where");
+            where = Filter(e.Where, f => LocalField(target, alias, f, ColumnCapabilities.Filter), target, alias);
+        }
+        if (!e.OrderBy.IsEmpty && !target.Capabilities.HasFlag(DatasetCapabilities.Sort))
+            throw QueryErrors.UnsupportedFeature("Sorting is not enabled for the related dataset.", e.Pointer + "/orderBy");
+        var order = e.OrderBy.Select(o => new ResolvedOrder(LocalField(target, alias, o.Field, ColumnCapabilities.Sort), o.Direction)).ToList();
+        foreach (var k in target.Key.Where(k => order.All(o => o.Field.Column != k))) order.Add(new ResolvedOrder(new ResolvedField(alias, k.PublicName, k), SortDirection.Ascending));
+
+        var limit = e.First ?? target.DefaultPageSize;
+        if (limit < 1 || limit > target.MaximumPageSize) throw QueryErrors.PageSizeExceeded(target.MaximumPageSize, e.Pointer + "/first");
+        var (source, foreignKey) = rel.Join[0];
+        return new ResolvedExpansion(rel.PublicName, rel, target, new ResolvedField("t0", "$expand:" + rel.PublicName, source), foreignKey,
+            select, where, [.. order], limit);
+    }
 
     // ---- Aggregation (§21): only Group/Aggregate-enabled, authorized columns; row policies still apply to WHERE. ----
 
@@ -178,24 +242,30 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
             where = Filter(doc.Where);
         }
 
-        // HAVING and ORDER BY refer to aggregate aliases or grouped fields only.
-        ResolvedField Output(FieldRef f) =>
-            aggregates.FirstOrDefault(x => x.Path == f.Path) ?? groupBy.FirstOrDefault(x => x.Path == f.Path)
+        // HAVING and ORDER BY refer to aggregate aliases or grouped fields only; a grouped field still needs its own
+        // Filter (having) or Sort (orderBy) capability: Group alone never implies them.
+        ResolvedField Output(FieldRef f, ColumnCapabilities cap) =>
+            aggregates.FirstOrDefault(x => x.Path == f.Path)
+            ?? groupBy.FirstOrDefault(x => x.Path == f.Path && x.Column.Can(cap))
             ?? throw QueryErrors.UnknownField(root.PublicName, f.Path, f.Pointer);
-        var having = doc.Having is null ? null : Filter(doc.Having, Output);
+        if (doc.Having is not null && !root.Capabilities.HasFlag(DatasetCapabilities.Filter))
+            throw QueryErrors.UnsupportedFeature("Filtering is not enabled for this dataset.", "/having");
+        var having = doc.Having is null ? null : Filter(doc.Having, f => Output(f, ColumnCapabilities.Filter), root, "t0");
         if (_conditions > _limits.MaximumConditions) throw QueryErrors.TooComplex($"At most {_limits.MaximumConditions} conditions are allowed.", "/having");
 
+        if (!doc.OrderBy.IsEmpty && !root.Capabilities.HasFlag(DatasetCapabilities.Sort))
+            throw QueryErrors.UnsupportedFeature("Sorting is not enabled for this dataset.", "/orderBy");
         var order = new List<ResolvedOrder>();
         foreach (var o in doc.OrderBy)
         {
-            var field = Output(o.Field);
+            var field = Output(o.Field, ColumnCapabilities.Sort);
             if (order.Any(x => x.Field.Path == field.Path)) throw QueryErrors.InvalidQuery($"Field '{field.Path}' is ordered more than once.", o.Field.Pointer);
             order.Add(new ResolvedOrder(field, o.Direction));
         }
         // Group keys are unique per row: they make the order deterministic.
         foreach (var g in groupBy.Where(g => order.All(o => o.Field.Path != g.Path))) order.Add(new ResolvedOrder(g, SortDirection.Ascending));
 
-        if (_joins.Count > _limits.MaximumRelationships) throw QueryErrors.TooComplex($"At most {_limits.MaximumRelationships} relationships may be used.");
+        if (_joins.Count + _subqueries > _limits.MaximumRelationships) throw QueryErrors.TooComplex($"At most {_limits.MaximumRelationships} relationships may be used.");
 
         return new ResolvedQuery
         {

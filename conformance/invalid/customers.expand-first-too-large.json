@@ -1,0 +1,14 @@
+{
+  "select": [
+    "id"
+  ],
+  "expand": [
+    {
+      "relationship": "orders",
+      "select": [
+        "id"
+      ],
+      "first": 501
+    }
+  ]
+}

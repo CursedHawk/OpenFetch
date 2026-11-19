@@ -25,6 +25,26 @@ public sealed record ResolvedQuery
     public ImmutableArray<ResolvedField> GroupBy { get; init; } = [];
     public ResolvedFilter? Having { get; init; }
     public bool IsAggregate { get; init; }
+    /// <summary>One-to-many expansions, executed as a second query per expansion in the same transaction.</summary>
+    public ImmutableArray<ResolvedExpansion> Expansions { get; init; } = [];
+}
+
+/// <summary>
+/// A collection expansion: rows of <see cref="Target"/> whose <see cref="ForeignKey"/> matches the parent's
+/// <see cref="ParentKey"/>, filtered by the target's trusted policy and the client filter, at most <see cref="Limit"/> per parent.
+/// </summary>
+public sealed record ResolvedExpansion(
+    string Name,
+    RelationshipDescriptor Relationship,
+    DatasetDescriptor Target,
+    ResolvedField ParentKey,
+    ColumnDescriptor ForeignKey,
+    ImmutableArray<ResolvedField> Select,
+    ResolvedFilter? Where,
+    ImmutableArray<ResolvedOrder> OrderBy,
+    int Limit)
+{
+    public ResolvedFilter? Policy { get; init; }
 }
 
 public sealed record ResolvedJoin(string Alias, string ParentAlias, string Path, RelationshipDescriptor Relationship, DatasetDescriptor Target)
@@ -48,6 +68,11 @@ public sealed record ResolvedOrder(ResolvedField Field, SortDirection Direction)
 public abstract record ResolvedFilter;
 public sealed record ResolvedLogical(LogicalOperator Operator, ImmutableArray<ResolvedFilter> Children) : ResolvedFilter;
 public sealed record ResolvedNot(ResolvedFilter Operand) : ResolvedFilter;
+/// <summary>EXISTS over a one-to-many relationship; <see cref="Alias"/> is the subquery table alias (s1..sn).</summary>
+public sealed record ResolvedExists(string Alias, string ParentAlias, RelationshipDescriptor Relationship, DatasetDescriptor Target, ResolvedFilter? Where) : ResolvedFilter
+{
+    public ResolvedFilter? Policy { get; init; }
+}
 public sealed record ResolvedComparison(ResolvedField Field, QueryOperator Operator, ResolvedOperand Right) : ResolvedFilter;
 
 /// <summary>Operand values are already converted to the column's public CLR type; the compiler applies provider conversion.</summary>
@@ -64,6 +89,8 @@ public interface IQueryCompiler
     QueryPlan Compile(ResolvedQuery query);
     /// <summary>Statement run first in the query's transaction: read-only mode plus transaction-local RLS settings.</summary>
     CompiledCommand CompileSessionSetup(IReadOnlyList<KeyValuePair<string, string?>> settings);
+    /// <summary>Rows for one expansion and a batch of parent keys; result columns are the foreign key, then the expansion's select.</summary>
+    CompiledCommand CompileExpansion(ResolvedExpansion expansion, IReadOnlyList<object> parentKeys);
     /// <summary>Statement run after the query (also on failure) to clear session-scoped security state; empty when settings are transaction-local.</summary>
     CompiledCommand CompileSessionTeardown(IReadOnlyList<KeyValuePair<string, string?>> settings) => new("", []);
 }
@@ -80,6 +107,8 @@ public enum ResultRole
     Cursor,
     /// <summary>Target key of a join: null means the related row is absent, so the nested object is written as null.</summary>
     JoinKey,
+    /// <summary>Parent key of a collection expansion: used to attach the expanded rows.</summary>
+    ExpandKey,
 }
 
 /// <summary>One SELECT-list entry. Compilers must emit exactly <see cref="For"/>'s columns, in order.</summary>
@@ -94,6 +123,7 @@ public sealed record ResultColumn(ResolvedField Field, ResultRole Role)
                 columns.Add(new ResultColumn(o.Field, ResultRole.Cursor));
         foreach (var join in q.Joins.Where(j => q.Select.Any(f => f.Path.StartsWith(j.Path + ".", StringComparison.Ordinal))))
             columns.Add(new ResultColumn(new ResolvedField(join.Alias, join.Path, join.Target.Key[0]), ResultRole.JoinKey));
+        foreach (var e in q.Expansions) columns.Add(new ResultColumn(e.ParentKey, ResultRole.ExpandKey));
         return [.. columns];
     }
 

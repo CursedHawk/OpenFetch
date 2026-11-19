@@ -11,7 +11,7 @@ public static class QueryParser
 {
     public const string Version = "1.0";
 
-    private static readonly string[] RootProperties = ["version", "select", "where", "orderBy", "page", "distinct", "groupBy", "aggregates", "having"];
+    private static readonly string[] RootProperties = ["version", "select", "where", "orderBy", "page", "distinct", "groupBy", "aggregates", "having", "expand"];
 
     private static readonly (string Name, AggregateFunction Function)[] Functions =
     [
@@ -76,6 +76,8 @@ public static class QueryParser
 
             var hasSelect = root.TryGetProperty("select", out var select);
             if (fixedSelect && hasSelect) throw QueryErrors.InvalidQuery("This projection has a fixed field list; 'select' is not allowed.", "/select");
+            if (fixedSelect && (aggregate || root.TryGetProperty("expand", out _)))
+                throw QueryErrors.InvalidQuery("Projections have a fixed result shape; aggregation and 'expand' are not allowed.", aggregate ? "/aggregates" : "/expand");
             if (aggregate && hasSelect) throw QueryErrors.InvalidQuery("Aggregate queries return their groupBy fields and aggregate aliases; 'select' is not allowed.", "/select");
             if (!fixedSelect && !aggregate && !hasSelect) throw QueryErrors.InvalidQuery("'select' is required.", "/select");
             var fields = !hasSelect ? [] : Array(select, "/select", "a non-empty array of field names")
@@ -107,7 +109,27 @@ public static class QueryParser
                 having = Filter(h, "/having", 1);
             }
 
-            return new QueryDocument(version, fields, where, order, page, distinct) { GroupBy = groupBy, Aggregates = aggregates, Having = having };
+            var expand = ImmutableArray<ExpandNode>.Empty;
+            if (root.TryGetProperty("expand", out var x))
+            {
+                if (aggregate) throw QueryErrors.InvalidQuery("'expand' cannot be combined with aggregation.", "/expand");
+                expand = [.. Array(x, "/expand", "an array of expansions").Select((e, i) => Expand(e, $"/expand/{i}"))];
+            }
+
+            return new QueryDocument(version, fields, where, order, page, distinct) { GroupBy = groupBy, Aggregates = aggregates, Having = having, Expand = expand };
+        }
+
+        private ExpandNode Expand(JsonElement e, string path)
+        {
+            Object(e, path, ["relationship", "select", "where", "orderBy", "first"]);
+            var relationship = String(Required(e, "relationship", path), path + "/relationship");
+            var select = Array(Required(e, "select", path), path + "/select", "a non-empty array of field names")
+                .Select((s, i) => new FieldRef(String(s, $"{path}/select/{i}"), $"{path}/select/{i}")).ToImmutableArray();
+            if (select.IsEmpty) throw QueryErrors.InvalidQuery("'select' must contain at least one field.", path + "/select");
+            var where = e.TryGetProperty("where", out var w) && w.ValueKind != JsonValueKind.Null ? Filter(w, path + "/where", 1) : null;
+            var order = e.TryGetProperty("orderBy", out var o) ? [.. Array(o, path + "/orderBy", "an array").Select((x, i) => Order(x, $"{path}/orderBy/{i}"))] : ImmutableArray<OrderNode>.Empty;
+            int? first = e.TryGetProperty("first", out var f) && f.ValueKind != JsonValueKind.Null ? Integer(f, path + "/first") : null;
+            return new ExpandNode(relationship, select, where, order, first, path);
         }
 
         private static AggregateNode Aggregate(JsonElement e, string path)
@@ -159,7 +181,8 @@ public static class QueryParser
                 "comparison" => Comparison(e, path),
                 "logical" => Logical(e, path, depth),
                 "not" => Not(e, path, depth),
-                _ => throw QueryErrors.InvalidQuery("'type' must be 'comparison', 'logical' or 'not'.", path + "/type"),
+                "any" => Any(e, path, depth),
+                _ => throw QueryErrors.InvalidQuery("'type' must be 'comparison', 'logical', 'not' or 'any'.", path + "/type"),
             };
         }
 
@@ -182,6 +205,14 @@ public static class QueryParser
         {
             Object(e, path, ["type", "operand"]);
             return new NotFilter(Filter(Required(e, "operand", path), path + "/operand", depth + 1)) { Pointer = path };
+        }
+
+        private FilterNode Any(JsonElement e, string path, int depth)
+        {
+            Object(e, path, ["type", "relationship", "where"]);
+            var relationship = String(Required(e, "relationship", path), path + "/relationship");
+            var where = e.TryGetProperty("where", out var w) && w.ValueKind != JsonValueKind.Null ? Filter(w, path + "/where", depth + 1) : null;
+            return new AnyFilter(relationship, where) { Pointer = path };
         }
 
         private static FilterNode Comparison(JsonElement e, string path)
@@ -311,6 +342,13 @@ public static class AstWriter
                 w.WriteStartObject();
                 w.WritePropertyName("not");
                 Filter(w, n.Operand);
+                w.WriteEndObject();
+                break;
+            case AnyFilter a:
+                w.WriteStartObject();
+                w.WriteString("any", a.Relationship);
+                w.WritePropertyName("where");
+                Filter(w, a.Where);
                 w.WriteEndObject();
                 break;
             case ComparisonFilter c:

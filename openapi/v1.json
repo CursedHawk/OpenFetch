@@ -1,6 +1,33 @@
 {
   "components": {
     "schemas": {
+      "CustomersAnyFilter": {
+        "additionalProperties": false,
+        "description": "True when at least one related row matches \u0027where\u0027 (none = not any; all = not any(not ...)).",
+        "properties": {
+          "relationship": {
+            "enum": [
+              "orders"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "const": "any",
+            "enum": [
+              "any"
+            ],
+            "type": "string"
+          },
+          "where": {
+            "$ref": "#/components/schemas/OrdersFilter"
+          }
+        },
+        "required": [
+          "type",
+          "relationship"
+        ],
+        "type": "object"
+      },
       "CustomersComparisonFilter": {
         "additionalProperties": false,
         "properties": {
@@ -75,9 +102,64 @@
           ]
         }
       },
+      "CustomersExpand": {
+        "additionalProperties": false,
+        "properties": {
+          "first": {
+            "description": "Rows per parent (default: the related dataset\u0027s default page size).",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "orderBy": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "direction": {
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ],
+                  "type": "string"
+                },
+                "field": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "relationship": {
+            "enum": [
+              "orders"
+            ],
+            "type": "string"
+          },
+          "select": {
+            "description": "Fields of the related dataset (no dotted paths).",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "where": {
+            "$ref": "#/components/schemas/OrdersFilter"
+          }
+        },
+        "required": [
+          "relationship",
+          "select"
+        ],
+        "type": "object"
+      },
       "CustomersFilter": {
         "discriminator": {
           "mapping": {
+            "any": "#/components/schemas/CustomersAnyFilter",
             "comparison": "#/components/schemas/CustomersComparisonFilter",
             "logical": "#/components/schemas/CustomersLogicalFilter",
             "not": "#/components/schemas/CustomersNotFilter"
@@ -93,6 +175,9 @@
           },
           {
             "$ref": "#/components/schemas/CustomersNotFilter"
+          },
+          {
+            "$ref": "#/components/schemas/CustomersAnyFilter"
           }
         ]
       },
@@ -204,6 +289,12 @@
         "additionalProperties": false,
         "description": "Customers",
         "properties": {
+          "expand": {
+            "items": {
+              "$ref": "#/components/schemas/CustomersExpand"
+            },
+            "type": "array"
+          },
           "orderBy": {
             "items": {
               "$ref": "#/components/schemas/CustomersOrder"
@@ -320,6 +411,13 @@
               "startsWith",
               "endsWith"
             ]
+          },
+          "orders": {
+            "description": "Present when expanded: related orders rows (only the expansion\u0027s selected fields).",
+            "items": {
+              "$ref": "#/components/schemas/OrdersRow"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -1061,22 +1159,6 @@
         "additionalProperties": false,
         "description": "Query for the fixed \u0027summary\u0027 projection of orders; \u0027select\u0027 is defined by the server.",
         "properties": {
-          "aggregates": {
-            "items": {
-              "$ref": "#/components/schemas/OrdersAggregate"
-            },
-            "type": "array"
-          },
-          "groupBy": {
-            "items": {
-              "$ref": "#/components/schemas/OrdersGroupableField"
-            },
-            "type": "array",
-            "uniqueItems": true
-          },
-          "having": {
-            "$ref": "#/components/schemas/OpenFetchHavingFilter"
-          },
           "orderBy": {
             "items": {
               "$ref": "#/components/schemas/OrdersOrder"
@@ -1380,7 +1462,7 @@
           "filtering": true,
           "offsetPagination": true,
           "projection": true,
-          "relationships": false,
+          "relationships": true,
           "sorting": true
         },
         "x-openfetch-complexity": {
@@ -1401,7 +1483,14 @@
           "maxSelectedFields": 50
         },
         "x-openfetch-projection": "dynamic",
-        "x-openfetch-relationships": []
+        "x-openfetch-relationships": [
+          {
+            "cardinality": "many",
+            "maxDepth": 2,
+            "name": "orders",
+            "target": "orders"
+          }
+        ]
       }
     },
     "/query/orders": {
@@ -1781,7 +1870,7 @@
       "name": "OpenFetch"
     }
   ],
-  "x-openfetch-model-version": "673e335f47f59cfe",
+  "x-openfetch-model-version": "08fab22f7b8fae06",
   "x-openfetch-provider": {
     "compilerVersion": "1",
     "name": "postgresql"

@@ -1,0 +1,15 @@
+{
+  "select": [
+    "id"
+  ],
+  "where": {
+    "type": "any",
+    "relationship": "orders",
+    "where": {
+      "type": "comparison",
+      "field": "tenantId",
+      "operator": "eq",
+      "value": "x"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "select": [
+    "name"
+  ],
+  "where": {
+    "type": "not",
+    "operand": {
+      "type": "any",
+      "relationship": "orders",
+      "where": {
+        "type": "comparison",
+        "field": "total",
+        "operator": "gt",
+        "value": 800
+      }
+    }
+  }
+}

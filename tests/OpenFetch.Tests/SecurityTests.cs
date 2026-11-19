@@ -80,6 +80,38 @@ public class SecurityTests
         Assert.Contains("""t0."TenantId" = @p0) AND (t0."Name" <> @p1)""", q.Plan.CommandText);
     }
 
+    [Fact]
+    public async Task Projections_cannot_be_reshaped_with_aggregation_or_expand()
+    {
+        var engine = TestEngine.Create();
+        foreach (var body in new[] { """{"aggregates":[{"function":"sum","field":"total","alias":"t"}]}""", """{"groupBy":["status"]}""",
+                     """{"expand":[{"relationship":"x","select":["id"]}]}""" })
+        {
+            var ex = await Assert.ThrowsAsync<OpenFetchException>(async () =>
+                await engine.PrepareAsync("orders", System.Text.Encoding.UTF8.GetBytes(body), TestEngine.Context(SeedData.TenantA), TestContext.Current.CancellationToken, "summary"));
+            Assert.Equal("invalid_query", ex.Code);
+        }
+    }
+
+    [Theory]
+    [InlineData("""{"groupBy":["status"],"aggregates":[{"function":"count","alias":"n"}],"having":{"type":"comparison","field":"status","operator":"eq","value":"open"}}""", "/having/field")]
+    [InlineData("""{"groupBy":["status"],"aggregates":[{"function":"count","alias":"n"}],"orderBy":[{"field":"status"}]}""", "/orderBy/0/field")]
+    public async Task Group_capability_does_not_imply_filter_or_sort(string json, string path)
+    {
+        var engine = TestEngine.Create(TestModel.Build(o => { TestModel.Configure(o); o.Dataset<Order>().Column(x => x.Status).Filter(false).Sort(false); }));
+        var ex = await Fails(engine, "orders", json, TestEngine.AllPolicies);
+        Assert.Equal(("unknown_field", path), (ex.Code, ex.Path));
+    }
+
+    [Fact]
+    public async Task Collection_target_policies_apply_inside_any_and_expand()
+    {
+        var engine = TestEngine.Create(TestModel.Build(o => { TestModel.Configure(o); o.Dataset<Order>().RequirePolicy("Orders.Read"); }));
+        Assert.Equal("invalid_relationship", (await Fails(engine, "customers", """{"select":["id"],"where":{"type":"any","relationship":"orders"}}""", [])).Code);
+        Assert.Equal("invalid_relationship", (await Fails(engine, "customers", """{"select":["id"],"expand":[{"relationship":"orders","select":["id"]}]}""", [])).Code);
+        Assert.Equal("unknown_field", (await Fails(engine, "customers", """{"select":["id"],"expand":[{"relationship":"orders","select":["total"]}]}""", ["Orders.Read"])).Code);
+    }
+
     private sealed class NotDeletedProvider : IRowPolicyProvider
     {
         public ValueTask<FilterNode?> BuildPolicyAsync(QuerySecurityContext context, DatasetDescriptor dataset, CancellationToken ct) =>
@@ -254,6 +286,22 @@ public class IsolationTests(PostgresFixture pg)
         var groups = await Run(TestEngine.Create(), pg.ConnectionString, "orders",
             """{"groupBy":["customer.country"],"aggregates":[{"function":"countDistinct","field":"customer.id","alias":"n"}]}""", SeedData.TenantB);
         Assert.Equal(["SK", null], groups.GetProperty("data").EnumerateArray().Select(r => r.GetProperty("customer").GetProperty("country").GetString()));
+    }
+
+    [Fact]
+    public async Task Collections_only_see_the_callers_tenant()
+    {
+        // Seed orders always belong to their customer's tenant, so cross-tenant probes must find nothing.
+        var probe = """{"select":["id"],"where":{"type":"any","relationship":"orders","where":{"type":"comparison","field":"number","operator":"startsWith","value":"SO-B"}}}""";
+        Assert.Empty(Ids(await Run(TestEngine.Create(), pg.ConnectionString, "customers", probe, SeedData.TenantA)));
+
+        var options = new OpenFetchOptions();
+        options.Security.UseDatabaseRowLevelSecurity();
+        var rlsOnly = TestEngine.Create(TestModel.Build(), security: options.Security);
+        var expanded = await Run(rlsOnly, pg.AppConnectionString(), "customers", """{"select":["id"],"expand":[{"relationship":"orders","select":["number"],"first":50}]}""", SeedData.TenantB);
+        var numbers = expanded.GetProperty("data").EnumerateArray().SelectMany(r => r.GetProperty("orders").EnumerateArray()).Select(o => o.GetProperty("number").GetString()!).ToList();
+        Assert.Equal(10, numbers.Count); // RLS alone: soft-deleted visible, other tenant never
+        Assert.All(numbers, n => Assert.StartsWith("SO-B", n));
     }
 
     [Fact]

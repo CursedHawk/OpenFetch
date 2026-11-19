@@ -34,7 +34,7 @@ public class SqlServerTests(SqlServerFixture ms)
     {
         var json = Corpus.Read("valid", name);
         var prepared = await Engine.PrepareAsync(Corpus.Dataset(name), json, TestEngine.Context(SeedData.TenantA));
-        Corpus.Snapshot("expected-plan-sqlserver", name + ".sql", Corpus.Plan(prepared.Plan));
+        Corpus.Snapshot("expected-plan-sqlserver", name + ".sql", Corpus.Plan(prepared, Engine.Compiler));
 
         var result = await Run(Engine, ms.AppConnectionString(), Corpus.Dataset(name), json, SeedData.TenantA);
         var expected = File.ReadAllText(Path.Combine(Corpus.Root, "conformance", "expected-results", name + ".json"));

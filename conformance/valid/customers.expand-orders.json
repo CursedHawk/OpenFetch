@@ -1,0 +1,29 @@
+{
+  "select": [
+    "id",
+    "name"
+  ],
+  "expand": [
+    {
+      "relationship": "orders",
+      "select": [
+        "number",
+        "status",
+        "total"
+      ],
+      "where": {
+        "type": "comparison",
+        "field": "status",
+        "operator": "ne",
+        "value": "cancelled"
+      },
+      "orderBy": [
+        {
+          "field": "total",
+          "direction": "desc"
+        }
+      ],
+      "first": 2
+    }
+  ]
+}

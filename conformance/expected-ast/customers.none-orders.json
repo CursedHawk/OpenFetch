@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "select": [
+    "name"
+  ],
+  "where": {
+    "not": {
+      "any": "orders",
+      "where": {
+        "field": "total",
+        "operator": "gt",
+        "value": "number:800"
+      }
+    }
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}

@@ -19,6 +19,7 @@ public sealed class Customer
     [QueryHidden]
     public Guid TenantId { get; set; }
 
+    [QueryRelationship("orders", Filter = true)]
     public List<Order> Orders { get; set; } = [];
 }
 

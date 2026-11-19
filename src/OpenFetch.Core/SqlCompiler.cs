@@ -104,7 +104,40 @@ public abstract class SqlCompiler : IQueryCompiler
         return new QueryPlan(sql.ToString(), [.. b.Parameters], columns);
     }
 
-    private void Table(StringBuilder sql, PhysicalTable t)
+    /// <summary>
+    /// Split query for one collection expansion: per-parent top-N via ROW_NUMBER over the foreign key, restricted to the
+    /// given parent keys (one parameter, shape-stable), with the target's trusted policy and the client filter.
+    /// Result columns: c0 = foreign key, then the expansion's select in order.
+    /// </summary>
+    public CompiledCommand CompileExpansion(ResolvedExpansion e, IReadOnlyList<object> parentKeys)
+    {
+        var b = new SqlBuilder(this);
+        var sql = b.Sql;
+        var alias = e.OrderBy[0].Field.Alias;
+        var fk = new ResolvedField(alias, "", e.ForeignKey);
+        sql.Append("SELECT ");
+        for (var i = 0; i <= e.Select.Length; i++) sql.Append(i == 0 ? "" : ", ").Append("x.c").Append(i);
+        sql.Append("\nFROM (SELECT ");
+        b.Column(fk);
+        sql.Append(" AS c0");
+        for (var i = 0; i < e.Select.Length; i++) { sql.Append(", "); b.Column(e.Select[i]); sql.Append(" AS c").Append(i + 1); }
+        sql.Append(", ROW_NUMBER() OVER (PARTITION BY ");
+        b.Column(fk);
+        sql.Append(" ORDER BY ");
+        for (var i = 0; i < e.OrderBy.Length; i++) { if (i > 0) sql.Append(", "); OrderTerm(b, e.OrderBy[i], null); }
+        sql.Append(") AS rn\n  FROM ");
+        Table(sql, e.Target.Table);
+        sql.Append(" AS ").Append(alias).Append("\n  WHERE (");
+        In(b, fk, [.. parentKeys], negate: false);
+        sql.Append(')');
+        if (e.Policy is not null) { sql.Append(" AND ("); b.Filter(e.Policy); sql.Append(')'); }
+        if (e.Where is not null) { sql.Append(" AND ("); b.Filter(e.Where); sql.Append(')'); }
+        sql.Append(") x\nWHERE x.rn <= ").Append(b.Parameter(e.Limit)).Append("\nORDER BY x.c0, x.rn");
+        if (b.Parameters.Count > MaximumParameters) throw QueryErrors.TooComplex("The query needs more parameters than the provider allows.");
+        return new CompiledCommand(sql.ToString(), [.. b.Parameters]);
+    }
+
+    internal void Table(StringBuilder sql, PhysicalTable t)
     {
         if (t.Schema is not null) sql.Append(Quote(t.Schema)).Append('.');
         sql.Append(Quote(t.Name));
@@ -192,6 +225,19 @@ public abstract class SqlCompiler : IQueryCompiler
                     break;
                 case ResolvedComparison c:
                     Comparison(c);
+                    break;
+                case ResolvedExists x:
+                    // The target's trusted policy lives inside the subquery: hidden related rows never satisfy 'any'.
+                    Sql.Append("EXISTS (SELECT 1 FROM ");
+                    dialect.Table(Sql, x.Target.Table);
+                    Sql.Append(" AS ").Append(x.Alias).Append(" WHERE ");
+                    var (source, target) = x.Relationship.Join[0];
+                    Column(x.Alias, target);
+                    Sql.Append(" = ");
+                    Column(x.ParentAlias, source);
+                    if (x.Policy is not null) { Sql.Append(" AND ("); Filter(x.Policy); Sql.Append(')'); }
+                    if (x.Where is not null) { Sql.Append(" AND ("); Filter(x.Where); Sql.Append(')'); }
+                    Sql.Append(')');
                     break;
             }
         }
