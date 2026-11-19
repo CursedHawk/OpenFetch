@@ -1,0 +1,56 @@
+using System.Collections.Immutable;
+
+namespace OpenFetch;
+
+/// <summary>Canonical, provider-neutral syntax tree (§15). Field names are logical paths (<c>customer.name</c>); no SQL anywhere.</summary>
+public sealed record QueryDocument(
+    string Version,
+    ImmutableArray<FieldRef> Select,
+    FilterNode? Where,
+    ImmutableArray<OrderNode> OrderBy,
+    PageNode Page,
+    bool Distinct);
+
+/// <summary>A logical field path plus the JSON Pointer it came from (for error reporting).</summary>
+public sealed record FieldRef(string Path, string Pointer = "")
+{
+    public override string ToString() => Path;
+}
+
+public enum SortDirection { Ascending, Descending }
+
+public sealed record OrderNode(FieldRef Field, SortDirection Direction);
+
+/// <summary><c>first</c> is the page size; <c>after</c> (cursor) and <c>offset</c> are mutually exclusive.</summary>
+public sealed record PageNode(int? First, string? After, int? Offset);
+
+public enum LogicalOperator { And, Or }
+
+public abstract record FilterNode
+{
+    public string Pointer { get; init; } = "";
+}
+
+public sealed record LogicalFilter(LogicalOperator Operator, ImmutableArray<FilterNode> Children) : FilterNode;
+
+public sealed record NotFilter(FilterNode Operand) : FilterNode;
+
+public sealed record ComparisonFilter(FieldRef Left, QueryOperator Operator, QueryOperand Right) : FilterNode;
+
+public abstract record QueryOperand;
+public sealed record ConstantOperand(QueryValue Value) : QueryOperand;
+public sealed record ListOperand(ImmutableArray<QueryValue> Values) : QueryOperand;
+/// <summary>Field-to-field comparison (<c>compareTo</c>); only when the feature is enabled.</summary>
+public sealed record FieldOperand(FieldRef Field) : QueryOperand;
+
+/// <summary>Native JSON scalar (§12). Numbers keep their exact source text so no precision is lost before typed conversion.</summary>
+public abstract record QueryValue
+{
+    public static readonly QueryValue Null = new NullValue();
+}
+public sealed record NullValue : QueryValue;
+public sealed record StringValue(string Value) : QueryValue;
+public sealed record BooleanValue(bool Value) : QueryValue;
+public sealed record NumberValue(string Text) : QueryValue;
+/// <summary>A CLR value supplied by trusted server code (row policies). The parser never produces this.</summary>
+public sealed record ClrValue(object Value) : QueryValue;

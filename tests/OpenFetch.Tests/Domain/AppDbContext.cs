@@ -4,25 +4,52 @@ namespace OpenFetch.Tests.Domain;
 
 public enum OrderStatus { Open, Processing, Shipped, Cancelled }
 
+[QueryDataset("customers", Description = "Customers")]
 public sealed class Customer
 {
+    [QueryColumn("id", Filter = true, Sort = true, Cursor = true)]
     public Guid Id { get; set; }
+
+    [QueryColumn("name", Filter = true, Sort = true)]
     public required string Name { get; set; }
+
+    [QueryColumn("country", Filter = true, Sort = true)]
     public string? Country { get; set; }
+
+    [QueryHidden]
     public Guid TenantId { get; set; }
+
     public List<Order> Orders { get; set; } = [];
 }
 
+[QueryDataset("orders", Description = "Queryable sales orders", DefaultPageSize = 100, MaximumPageSize = 500)]
 public sealed class Order
 {
+    [QueryColumn("id", Filter = true, Sort = true, Cursor = true)]
     public Guid Id { get; set; }
+
+    [QueryColumn("number", Filter = true, Sort = true,
+        AllowedOperators = [QueryOperator.Equal, QueryOperator.NotEqual, QueryOperator.Contains, QueryOperator.StartsWith])]
     public required string Number { get; set; }
+
+    [QueryColumn("status", Filter = true, Sort = true,
+        AllowedOperators = [QueryOperator.Equal, QueryOperator.NotEqual, QueryOperator.In])]
     public OrderStatus Status { get; set; }
+
+    [QueryColumn("total", Filter = true, Sort = true, Aggregate = true, AuthorizationPolicy = "Orders.FinancialData")]
     public decimal Total { get; set; }
+
+    [QueryColumn("createdAt", Filter = true, Sort = true, Cursor = true)]
     public DateTimeOffset CreatedAt { get; set; }
+
+    [QueryHidden]
     public Guid TenantId { get; set; }
+
     public bool IsDeleted { get; set; }
+
     public Guid CustomerId { get; set; }
+
+    [QueryRelationship("customer", Select = true, Filter = true, Sort = true, MaximumDepth = 1)]
     public Customer Customer { get; set; } = null!;
 }
 
