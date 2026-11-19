@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "select": [],
+  "where": null,
+  "orderBy": [
+    "customer.country asc"
+  ],
+  "page": {
+    "first": 10,
+    "offset": 0
+  },
+  "distinct": false
+}

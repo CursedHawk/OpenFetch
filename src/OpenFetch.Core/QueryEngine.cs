@@ -426,10 +426,13 @@ public static class Complexity
 
     public static int Score(ResolvedQuery q)
     {
-        var score = 1 + q.Select.Length + q.Joins.Length * 15 + (q.Distinct ? 20 : 0);
-        score += Filter(q.Where, client: true) + Filter(q.Policy, client: false) + q.Joins.Sum(j => Filter(j.Policy, client: false));
+        var score = 1 + q.Select.Count(f => f.Aggregate is null) + q.Joins.Length * 15 + (q.Distinct ? 20 : 0);
+        score += q.GroupBy.Length * 15 + q.Select.Count(f => f.Aggregate is not null) * 10;
+        score += Filter(q.Where, client: true) + Filter(q.Having, client: true) + Filter(q.Policy, client: false) + q.Joins.Sum(j => Filter(j.Policy, client: false));
         // Root key columns are served by the primary-key index (and are the appended tie-breaker), so they are never charged.
-        score += q.OrderBy.Count(o => !o.Field.Column.Indexed && !(o.Field.Alias == "t0" && q.Dataset.Key.Contains(o.Field.Column))) * 30;
+        // Grouped results are sorted after aggregation, so ordering adds no per-row index cost there.
+        if (!q.IsAggregate)
+            score += q.OrderBy.Count(o => !o.Field.Column.Indexed && !(o.Field.Alias == "t0" && q.Dataset.Key.Contains(o.Field.Column))) * 30;
         return score;
     }
 
@@ -440,7 +443,7 @@ public static class Complexity
         ResolvedNot n => Filter(n.Operand, client),
         ResolvedComparison c => 2
             + (c.Operator is QueryOperator.Contains or QueryOperator.EndsWith ? 25 : 0)
-            + (client && !c.Field.Column.Indexed ? 20 : 0),
+            + (client && c.Field.Aggregate is null && !c.Field.Column.Indexed ? 20 : 0),
         _ => 0,
     };
 }
@@ -454,11 +457,13 @@ internal static class Keys
         sb.Append(QueryParser.Version).Append('|').Append(compiler.ProviderName).Append('/').Append(compiler.CompilerVersion).Append('|').Append(modelVersion)
           .Append('|').Append(q.Dataset.PublicName).Append('|').Append(q.Distinct);
         foreach (var j in q.Joins) sb.Append("|j:").Append(j.Path);
-        foreach (var f in q.Select) sb.Append("|s:").Append(f.Path);
+        foreach (var f in q.Select) sb.Append("|s:").Append(f.Path).Append(f.Aggregate is { } a ? $"={a.Function}({a.Argument?.Path})" : "");
+        foreach (var g in q.GroupBy) sb.Append("|g:").Append(g.Path);
+        sb.Append("|h:"); Filter(sb, q.Having);
         sb.Append("|w:"); Filter(sb, q.Where);
         sb.Append("|p:"); Filter(sb, q.Policy);
         foreach (var j in q.Joins) { sb.Append("|jp:"); Filter(sb, j.Policy); }
-        foreach (var o in q.OrderBy) sb.Append("|o:").Append(o.Field.Alias).Append('.').Append(o.Field.Column.PropertyName).Append(o.Direction == SortDirection.Ascending ? '+' : '-');
+        foreach (var o in q.OrderBy) sb.Append("|o:").Append(o.Field.Alias).Append('.').Append(o.Field.Path).Append(o.Direction == SortDirection.Ascending ? '+' : '-');
         return Hash(sb.ToString());
     }
 

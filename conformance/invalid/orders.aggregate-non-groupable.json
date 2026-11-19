@@ -1,0 +1,11 @@
+{
+  "groupBy": [
+    "number"
+  ],
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "n"
+    }
+  ]
+}

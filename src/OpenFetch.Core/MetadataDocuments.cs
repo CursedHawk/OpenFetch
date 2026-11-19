@@ -15,7 +15,7 @@ public static class MetadataDocuments
             w.WriteStartArray("versions"); w.WriteStringValue(QueryParser.Version); w.WriteEndArray();
             w.WriteStartObject("features");
             w.WriteBoolean("relationships", model.Datasets.Values.Any(d => d.Relationships.Count > 0));
-            w.WriteBoolean("aggregates", false);
+            w.WriteBoolean("aggregates", model.Datasets.Values.Any(d => d.Capabilities.HasFlag(DatasetCapabilities.Aggregation)));
             w.WriteBoolean("cursorPagination", model.Datasets.Values.Any(d => d.Capabilities.HasFlag(DatasetCapabilities.CursorPagination)));
             w.WriteBoolean("offsetPagination", model.Datasets.Values.Any(d => d.Capabilities.HasFlag(DatasetCapabilities.OffsetPagination)));
             w.WriteBoolean("fieldComparison", model.Features.FieldComparison);
@@ -43,6 +43,7 @@ public static class MetadataDocuments
             Names(w, "collections", QueryOperators.Collections);
             Names(w, "strings", QueryOperators.Strings);
             w.WriteStartArray("logical"); w.WriteStringValue("and"); w.WriteStringValue("or"); w.WriteStringValue("not"); w.WriteEndArray();
+            w.WriteStartArray("aggregates"); foreach (var f in QueryParser.FunctionNames) w.WriteStringValue(f); w.WriteEndArray();
             w.WriteEndObject();
             w.WriteStartObject("complexity"); w.WriteNumber("version", Complexity.Version); w.WriteEndObject();
             w.WriteStartObject("provider");

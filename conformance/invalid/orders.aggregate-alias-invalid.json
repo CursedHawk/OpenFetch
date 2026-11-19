@@ -1,0 +1,8 @@
+{
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "a b; DROP"
+    }
+  ]
+}

@@ -18,6 +18,8 @@ public static partial class QueryModelBuilder
     [GeneratedRegex("^[A-Za-z][A-Za-z0-9_]{0,63}$")]
     private static partial Regex PublicName();
 
+    public static bool IsPublicName(string name) => PublicName().IsMatch(name);
+
     public static QueryModel Build(IEnumerable<EntityMapping> entities, OpenFetchOptions options, ICollection<string>? warnings = null)
     {
         var errors = new List<string>();

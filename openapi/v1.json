@@ -273,7 +273,8 @@
             "x-openfetch-capabilities": [
               "select",
               "filter",
-              "sort"
+              "sort",
+              "group"
             ],
             "x-openfetch-operators": [
               "eq",
@@ -292,6 +293,7 @@
               "select",
               "filter",
               "sort",
+              "aggregate",
               "cursor"
             ],
             "x-openfetch-operators": [
@@ -337,6 +339,129 @@
           "name"
         ],
         "type": "string"
+      },
+      "OpenFetchHavingComparison": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "description": "An aggregate alias or a groupBy field.",
+            "type": "string"
+          },
+          "operator": {
+            "enum": [
+              "eq",
+              "ne",
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "in",
+              "notIn",
+              "between",
+              "notBetween"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "const": "comparison",
+            "enum": [
+              "comparison"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OpenFetchScalar"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OpenFetchScalar"
+                },
+                "type": "array"
+              }
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "field",
+          "operator"
+        ],
+        "type": "object"
+      },
+      "OpenFetchHavingFilter": {
+        "discriminator": {
+          "mapping": {
+            "comparison": "#/components/schemas/OpenFetchHavingComparison",
+            "logical": "#/components/schemas/OpenFetchHavingLogical",
+            "not": "#/components/schemas/OpenFetchHavingNot"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OpenFetchHavingComparison"
+          },
+          {
+            "$ref": "#/components/schemas/OpenFetchHavingLogical"
+          },
+          {
+            "$ref": "#/components/schemas/OpenFetchHavingNot"
+          }
+        ]
+      },
+      "OpenFetchHavingLogical": {
+        "additionalProperties": false,
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/OpenFetchHavingFilter"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "operator": {
+            "enum": [
+              "and",
+              "or"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "const": "logical",
+            "enum": [
+              "logical"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "operator",
+          "children"
+        ],
+        "type": "object"
+      },
+      "OpenFetchHavingNot": {
+        "additionalProperties": false,
+        "properties": {
+          "operand": {
+            "$ref": "#/components/schemas/OpenFetchHavingFilter"
+          },
+          "type": {
+            "const": "not",
+            "enum": [
+              "not"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "operand"
+        ],
+        "type": "object"
       },
       "OpenFetchMeta": {
         "additionalProperties": false,
@@ -416,6 +541,42 @@
           "number",
           "string"
         ]
+      },
+      "OrdersAggregatableField": {
+        "enum": [
+          "createdAt",
+          "total",
+          "customer.id"
+        ],
+        "type": "string"
+      },
+      "OrdersAggregate": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          "field": {
+            "$ref": "#/components/schemas/OrdersAggregatableField"
+          },
+          "function": {
+            "enum": [
+              "count",
+              "countDistinct",
+              "sum",
+              "avg",
+              "min",
+              "max"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "function",
+          "alias"
+        ],
+        "type": "object"
       },
       "OrdersComparisonFilter": {
         "additionalProperties": false,
@@ -572,6 +733,13 @@
         ],
         "type": "string"
       },
+      "OrdersGroupableField": {
+        "enum": [
+          "status",
+          "customer.country"
+        ],
+        "type": "string"
+      },
       "OrdersLogicalFilter": {
         "additionalProperties": false,
         "properties": {
@@ -672,6 +840,22 @@
         "additionalProperties": false,
         "description": "Queryable sales orders",
         "properties": {
+          "aggregates": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersAggregate"
+            },
+            "type": "array"
+          },
+          "groupBy": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersGroupableField"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "having": {
+            "$ref": "#/components/schemas/OpenFetchHavingFilter"
+          },
           "orderBy": {
             "items": {
               "$ref": "#/components/schemas/OrdersOrder"
@@ -682,7 +866,7 @@
             "$ref": "#/components/schemas/OrdersPage"
           },
           "select": {
-            "description": "Fields to return. Relationship fields use dotted paths and are returned as nested objects.",
+            "description": "Fields to return. Relationship fields use dotted paths and are returned as nested objects. Not allowed in aggregate queries (groupBy/aggregates).",
             "items": {
               "$ref": "#/components/schemas/OrdersSelectableField"
             },
@@ -701,9 +885,6 @@
             "$ref": "#/components/schemas/OrdersFilter"
           }
         },
-        "required": [
-          "select"
-        ],
         "type": "object"
       },
       "OrdersResult": {
@@ -730,7 +911,10 @@
         "type": "object"
       },
       "OrdersRow": {
-        "description": "A orders row. Only selected fields are present.",
+        "additionalProperties": {
+          "$ref": "#/components/schemas/OpenFetchScalar"
+        },
+        "description": "A orders row. Only selected fields are present. Aggregate queries add one property per aggregate alias.",
         "properties": {
           "createdAt": {
             "format": "date-time",
@@ -739,6 +923,7 @@
               "select",
               "filter",
               "sort",
+              "aggregate",
               "cursor"
             ],
             "x-openfetch-operators": [
@@ -807,7 +992,8 @@
             "x-openfetch-capabilities": [
               "select",
               "filter",
-              "sort"
+              "sort",
+              "group"
             ],
             "x-openfetch-operators": [
               "eq",
@@ -875,6 +1061,22 @@
         "additionalProperties": false,
         "description": "Query for the fixed \u0027summary\u0027 projection of orders; \u0027select\u0027 is defined by the server.",
         "properties": {
+          "aggregates": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersAggregate"
+            },
+            "type": "array"
+          },
+          "groupBy": {
+            "items": {
+              "$ref": "#/components/schemas/OrdersGroupableField"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "having": {
+            "$ref": "#/components/schemas/OpenFetchHavingFilter"
+          },
           "orderBy": {
             "items": {
               "$ref": "#/components/schemas/OrdersOrder"
@@ -995,7 +1197,8 @@
             "x-openfetch-capabilities": [
               "select",
               "filter",
-              "sort"
+              "sort",
+              "group"
             ],
             "x-openfetch-operators": [
               "eq",
@@ -1339,7 +1542,7 @@
           "OpenFetch"
         ],
         "x-openfetch-capabilities": {
-          "aggregation": false,
+          "aggregation": true,
           "cursorPagination": true,
           "distinct": false,
           "filtering": true,
@@ -1509,7 +1712,7 @@
           "OpenFetch"
         ],
         "x-openfetch-capabilities": {
-          "aggregation": false,
+          "aggregation": true,
           "cursorPagination": true,
           "distinct": false,
           "filtering": true,
@@ -1578,7 +1781,7 @@
       "name": "OpenFetch"
     }
   ],
-  "x-openfetch-model-version": "c885b90a9f431199",
+  "x-openfetch-model-version": "673e335f47f59cfe",
   "x-openfetch-provider": {
     "compilerVersion": "1",
     "name": "postgresql"

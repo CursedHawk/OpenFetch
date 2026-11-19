@@ -1,0 +1,45 @@
+{
+  "data": [
+    {
+      "status": "processing",
+      "orders": 3,
+      "revenue": 1501.50,
+      "average": 500.5000000000,
+      "first": "2026-01-01T12:00:00Z",
+      "largest": 900.50
+    },
+    {
+      "status": "open",
+      "orders": 2,
+      "revenue": 1201.00,
+      "average": 600.5000000000,
+      "first": "2026-01-04T12:00:00Z",
+      "largest": 800.50
+    },
+    {
+      "status": "cancelled",
+      "orders": 2,
+      "revenue": 1001.00,
+      "average": 500.5000000000,
+      "first": "2026-01-03T12:00:00Z",
+      "largest": 700.50
+    },
+    {
+      "status": "shipped",
+      "orders": 2,
+      "revenue": 801.00,
+      "average": 400.5000000000,
+      "first": "2026-01-02T12:00:00Z",
+      "largest": 600.50
+    }
+  ],
+  "page": {
+    "count": 4,
+    "hasNext": false,
+    "endCursor": null
+  },
+  "meta": {
+    "dataset": "orders",
+    "modelVersion": "MODEL"
+  }
+}

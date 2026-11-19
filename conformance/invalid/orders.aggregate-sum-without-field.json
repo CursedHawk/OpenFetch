@@ -1,0 +1,8 @@
+{
+  "aggregates": [
+    {
+      "function": "sum",
+      "alias": "s"
+    }
+  ]
+}

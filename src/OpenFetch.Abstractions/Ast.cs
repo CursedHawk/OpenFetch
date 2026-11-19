@@ -9,7 +9,21 @@ public sealed record QueryDocument(
     FilterNode? Where,
     ImmutableArray<OrderNode> OrderBy,
     PageNode Page,
-    bool Distinct);
+    bool Distinct)
+{
+    /// <summary>Aggregation (§21): group keys. Output rows contain the group fields followed by the aggregate aliases.</summary>
+    public ImmutableArray<FieldRef> GroupBy { get; init; } = [];
+    public ImmutableArray<AggregateNode> Aggregates { get; init; } = [];
+    /// <summary>Filter on aggregate aliases and group fields, applied after grouping.</summary>
+    public FilterNode? Having { get; init; }
+
+    public bool IsAggregate => !GroupBy.IsEmpty || !Aggregates.IsEmpty;
+}
+
+public enum AggregateFunction { Count, CountDistinct, Sum, Avg, Min, Max }
+
+/// <summary><c>{"function":"sum","field":"total","alias":"revenue"}</c>; <c>count</c> may omit the field (counts rows).</summary>
+public sealed record AggregateNode(AggregateFunction Function, FieldRef? Field, string Alias, string Pointer);
 
 /// <summary>A logical field path plus the JSON Pointer it came from (for error reporting).</summary>
 public sealed record FieldRef(string Path, string Pointer = "")

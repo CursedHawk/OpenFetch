@@ -1,0 +1,16 @@
+{
+  "groupBy": [
+    "status"
+  ],
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "n"
+    }
+  ],
+  "orderBy": [
+    {
+      "field": "number"
+    }
+  ]
+}

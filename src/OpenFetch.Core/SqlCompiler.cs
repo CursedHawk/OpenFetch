@@ -23,6 +23,12 @@ public abstract class SqlCompiler : IQueryCompiler
     /// <summary>Renders one ORDER BY term with NULLs last for ASC and first for DESC (identical across providers).</summary>
     protected abstract void OrderTerm(SqlBuilder b, ResolvedOrder order, string? distinctAlias);
     protected abstract void Paging(SqlBuilder b, int limit, int offset);
+    /// <summary>Row-count function returning a 64-bit integer.</summary>
+    protected virtual string CountFunction => "COUNT";
+    /// <summary>Exact decimal type used to normalize averages so all providers return identical values.</summary>
+    protected abstract string AverageDecimalType { get; }
+    /// <summary>ORDER BY used when nothing needs ordering (a single global aggregate row); null = omit the clause.</summary>
+    protected virtual string? EmptyOrderBy => null;
     public abstract CompiledCommand CompileSessionSetup(IReadOnlyList<KeyValuePair<string, string?>> settings);
     public virtual CompiledCommand CompileSessionTeardown(IReadOnlyList<KeyValuePair<string, string?>> settings) => new("", []);
 
@@ -61,6 +67,7 @@ public abstract class SqlCompiler : IQueryCompiler
         }
 
         // Policy first and parenthesized separately: the client filter can never negate or escape it (§16.4).
+        // Aggregates still see only policy-filtered rows: grouping happens after WHERE (§21).
         var predicates = new List<Action>();
         if (q.Policy is not null) predicates.Add(() => b.Filter(q.Policy));
         if (q.Where is not null) predicates.Add(() => b.Filter(q.Where));
@@ -72,7 +79,19 @@ public abstract class SqlCompiler : IQueryCompiler
             sql.Append(')');
         }
 
-        sql.Append("\nORDER BY ");
+        if (!q.GroupBy.IsEmpty)
+        {
+            sql.Append("\nGROUP BY ");
+            for (var i = 0; i < q.GroupBy.Length; i++)
+            {
+                if (i > 0) sql.Append(", ");
+                b.Column(q.GroupBy[i]);
+            }
+        }
+        if (q.Having is not null) { sql.Append("\nHAVING ("); b.Filter(q.Having); sql.Append(')'); }
+
+        if (q.OrderBy.IsEmpty) { if (EmptyOrderBy is { } empty) sql.Append("\nORDER BY ").Append(empty); }
+        else sql.Append("\nORDER BY ");
         for (var i = 0; i < q.OrderBy.Length; i++)
         {
             if (i > 0) sql.Append(", ");
@@ -115,7 +134,34 @@ public abstract class SqlCompiler : IQueryCompiler
             return "@" + name;
         }
 
-        public void Column(ResolvedField f) => Column(f.Alias, f.Column);
+        public void Column(ResolvedField f)
+        {
+            if (f.Aggregate is { } a) Aggregate(a);
+            else Column(f.Alias, f.Column);
+        }
+
+        /// <summary>Aggregate with normalized result types: 64-bit counts and integer sums, decimal(38,10) averages.</summary>
+        private void Aggregate(ResolvedAggregate a)
+        {
+            var arg = a.Argument;
+            switch (a.Function)
+            {
+                case AggregateFunction.Count when arg is null: Sql.Append(dialect.CountFunction).Append("(*)"); break;
+                case AggregateFunction.Count: Sql.Append(dialect.CountFunction).Append('('); Column(arg); Sql.Append(')'); break;
+                case AggregateFunction.CountDistinct: Sql.Append(dialect.CountFunction).Append("(DISTINCT "); Column(arg!); Sql.Append(')'); break;
+                case AggregateFunction.Sum when arg!.Column.Kind == ScalarKind.Integer:
+                    Sql.Append("CAST(SUM(CAST("); Column(arg); Sql.Append(" AS bigint)) AS bigint)"); break;
+                case AggregateFunction.Avg when arg!.Column.Kind is ScalarKind.Integer or ScalarKind.Decimal:
+                    Sql.Append("CAST(AVG(CAST("); Column(arg); Sql.Append(" AS ").Append(dialect.AverageDecimalType).Append(")) AS ")
+                       .Append(dialect.AverageDecimalType).Append(')');
+                    break;
+                default:
+                    Sql.Append(a.Function switch { AggregateFunction.Sum => "SUM", AggregateFunction.Avg => "AVG", AggregateFunction.Min => "MIN", _ => "MAX" }).Append('(');
+                    Column(arg!);
+                    Sql.Append(')');
+                    break;
+            }
+        }
         public void Column(string alias, ColumnDescriptor c) => Sql.Append(alias).Append('.').Append(dialect.Quote(c.Physical.Name));
 
         public static object? ToProvider(ColumnDescriptor c, object? value) =>

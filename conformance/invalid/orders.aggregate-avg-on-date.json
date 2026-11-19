@@ -1,0 +1,9 @@
+{
+  "aggregates": [
+    {
+      "function": "avg",
+      "field": "createdAt",
+      "alias": "a"
+    }
+  ]
+}

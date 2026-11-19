@@ -77,6 +77,8 @@ public enum DatasetCapabilities
     CursorPagination = 4,
     OffsetPagination = 8,
     Distinct = 16,
+    /// <summary>groupBy/aggregates/having (§21). Opt-in: counts and sums disclose more than rows do.</summary>
+    Aggregation = 32,
     Default = Filter | Sort | CursorPagination | OffsetPagination,
 }
 

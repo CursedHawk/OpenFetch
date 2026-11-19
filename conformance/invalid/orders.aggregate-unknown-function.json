@@ -1,0 +1,9 @@
+{
+  "aggregates": [
+    {
+      "function": "median",
+      "field": "total",
+      "alias": "m"
+    }
+  ]
+}

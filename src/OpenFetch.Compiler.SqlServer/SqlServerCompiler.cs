@@ -19,6 +19,9 @@ public sealed partial class SqlServerCompiler : SqlCompiler
     protected override string True => "1 = 1";
     protected override string False => "1 = 0";
     protected override string LikeWildcards => "%_[";
+    protected override string CountFunction => "COUNT_BIG";
+    protected override string? EmptyOrderBy => "(SELECT NULL)"; // OFFSET/FETCH requires ORDER BY
+    protected override string AverageDecimalType => "decimal(38,10)";
 
     [GeneratedRegex("^[a-z_][a-z0-9_]{0,62}$")]
     private static partial Regex SettingKey();

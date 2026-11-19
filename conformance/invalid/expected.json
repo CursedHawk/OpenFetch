@@ -1,7 +1,63 @@
 {
+  "customers.aggregation-disabled": {
+    "code": "unsupported_provider_feature",
+    "path": "/aggregates"
+  },
   "orders.after-and-offset": {
     "code": "invalid_query",
     "path": "/page"
+  },
+  "orders.aggregate-alias-duplicate": {
+    "code": "invalid_query",
+    "path": "/aggregates/1/alias"
+  },
+  "orders.aggregate-alias-invalid": {
+    "code": "invalid_query",
+    "path": "/aggregates/0/alias"
+  },
+  "orders.aggregate-alias-shadows-group": {
+    "code": "invalid_query",
+    "path": "/aggregates/0/alias"
+  },
+  "orders.aggregate-avg-on-date": {
+    "code": "invalid_value_type",
+    "path": "/aggregates/0/function"
+  },
+  "orders.aggregate-cursor": {
+    "code": "unsupported_provider_feature",
+    "path": "/page/after"
+  },
+  "orders.aggregate-having-unknown": {
+    "code": "unknown_field",
+    "path": "/having/field"
+  },
+  "orders.aggregate-non-aggregatable": {
+    "code": "unknown_field",
+    "path": "/aggregates/0/field"
+  },
+  "orders.aggregate-non-groupable": {
+    "code": "unknown_field",
+    "path": "/groupBy/0"
+  },
+  "orders.aggregate-order-not-output": {
+    "code": "unknown_field",
+    "path": "/orderBy/0/field"
+  },
+  "orders.aggregate-sum-on-guid": {
+    "code": "invalid_value_type",
+    "path": "/aggregates/0/function"
+  },
+  "orders.aggregate-sum-without-field": {
+    "code": "invalid_query",
+    "path": "/aggregates/0/field"
+  },
+  "orders.aggregate-unknown-function": {
+    "code": "invalid_query",
+    "path": "/aggregates/0/function"
+  },
+  "orders.aggregate-with-select": {
+    "code": "invalid_query",
+    "path": "/select"
   },
   "orders.between-object": {
     "code": "invalid_value_type",
@@ -62,6 +118,10 @@
   "orders.filter-type-unknown": {
     "code": "invalid_query",
     "path": "/where/type"
+  },
+  "orders.having-without-aggregate": {
+    "code": "invalid_query",
+    "path": "/having"
   },
   "orders.hidden-field": {
     "code": "unknown_field",

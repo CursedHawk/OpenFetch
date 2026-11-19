@@ -8,7 +8,7 @@ namespace OpenFetch;
 /// </summary>
 internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Func<ImmutableArray<string>, bool> allowed)
 {
-    private enum Usage { Select, Filter, Sort }
+    private enum Usage { Select, Filter, Sort, Group, Aggregate }
 
     private readonly QueryLimits _limits = model.Limits;
     private readonly List<ResolvedJoin> _joins = [];
@@ -16,6 +16,7 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
 
     public ResolvedQuery Resolve(QueryDocument doc)
     {
+        if (doc.IsAggregate) return ResolveAggregate(doc);
         if (doc.Select.Length > _limits.MaximumSelectedFields)
             throw QueryErrors.TooComplex($"At most {_limits.MaximumSelectedFields} fields may be selected.", "/select");
         var select = doc.Select.Select(f => Field(f, Usage.Select)).ToImmutableArray();
@@ -106,6 +107,8 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         {
             Usage.Select => (ColumnCapabilities.Select, RelationshipCapabilities.Select),
             Usage.Filter => (ColumnCapabilities.Filter, RelationshipCapabilities.Filter),
+            Usage.Group => (ColumnCapabilities.Group, RelationshipCapabilities.Select),
+            Usage.Aggregate => (ColumnCapabilities.Aggregate, RelationshipCapabilities.Select),
             _ => (ColumnCapabilities.Sort, RelationshipCapabilities.Sort),
         };
         var segments = f.Path.Split('.');
@@ -128,25 +131,135 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         return new ResolvedField(alias, f.Path, column);
     }
 
-    private ResolvedFilter Filter(FilterNode node) => node switch
+    private ResolvedFilter Filter(FilterNode node) => Filter(node, f => Field(f, Usage.Filter));
+
+    private ResolvedFilter Filter(FilterNode node, Func<FieldRef, ResolvedField> field) => node switch
     {
-        LogicalFilter l => new ResolvedLogical(l.Operator, [.. l.Children.Select(Filter)]),
-        NotFilter n => new ResolvedNot(Filter(n.Operand)),
-        ComparisonFilter c => Comparison(c),
+        LogicalFilter l => new ResolvedLogical(l.Operator, [.. l.Children.Select(c => Filter(c, field))]),
+        NotFilter n => new ResolvedNot(Filter(n.Operand, field)),
+        ComparisonFilter c => Comparison(c, field),
         _ => throw new InvalidOperationException(),
     };
 
-    private ResolvedComparison Comparison(ComparisonFilter c)
+    // ---- Aggregation (§21): only Group/Aggregate-enabled, authorized columns; row policies still apply to WHERE. ----
+
+    private ResolvedQuery ResolveAggregate(QueryDocument doc)
+    {
+        if (!root.Capabilities.HasFlag(DatasetCapabilities.Aggregation))
+            throw QueryErrors.UnsupportedFeature("Aggregation is not enabled for this dataset.", doc.Aggregates.IsEmpty ? "/groupBy" : "/aggregates");
+        if (doc.Distinct) throw QueryErrors.InvalidQuery("'distinct' cannot be combined with aggregation.", "/distinct");
+        if (doc.Page.After is not null) throw QueryErrors.UnsupportedFeature("Aggregate queries support offset pagination only.", "/page/after");
+        if (doc.GroupBy.Length + doc.Aggregates.Length > _limits.MaximumSelectedFields)
+            throw QueryErrors.TooComplex($"At most {_limits.MaximumSelectedFields} group fields and aggregates are allowed.", "/aggregates");
+
+        var groupBy = new List<ResolvedField>();
+        foreach (var g in doc.GroupBy)
+        {
+            if (groupBy.Any(x => x.Path == g.Path)) throw QueryErrors.InvalidQuery($"Field '{g.Path}' is grouped more than once.", g.Pointer);
+            groupBy.Add(Field(g, Usage.Group));
+        }
+
+        var aggregates = new List<ResolvedField>();
+        foreach (var a in doc.Aggregates)
+        {
+            if (!QueryModelBuilder.IsPublicName(a.Alias))
+                throw QueryErrors.InvalidQuery("Aliases must start with a letter and contain only letters, digits and '_'.", a.Pointer + "/alias");
+            if (aggregates.Any(x => x.Path == a.Alias) || groupBy.Any(g => g.Path.Split('.')[0] == a.Alias))
+                throw QueryErrors.InvalidQuery($"Alias '{a.Alias}' is already used.", a.Pointer + "/alias");
+            var argument = a.Field is null ? null : Field(a.Field, Usage.Aggregate);
+            var column = AggregateColumn(a, argument?.Column);
+            aggregates.Add(new ResolvedField(argument?.Alias ?? "t0", a.Alias, column) { Aggregate = new ResolvedAggregate(a.Function, argument) });
+        }
+
+        ResolvedFilter? where = null;
+        if (doc.Where is not null)
+        {
+            if (!root.Capabilities.HasFlag(DatasetCapabilities.Filter)) throw QueryErrors.UnsupportedFeature("Filtering is not enabled for this dataset.", "/where");
+            where = Filter(doc.Where);
+        }
+
+        // HAVING and ORDER BY refer to aggregate aliases or grouped fields only.
+        ResolvedField Output(FieldRef f) =>
+            aggregates.FirstOrDefault(x => x.Path == f.Path) ?? groupBy.FirstOrDefault(x => x.Path == f.Path)
+            ?? throw QueryErrors.UnknownField(root.PublicName, f.Path, f.Pointer);
+        var having = doc.Having is null ? null : Filter(doc.Having, Output);
+        if (_conditions > _limits.MaximumConditions) throw QueryErrors.TooComplex($"At most {_limits.MaximumConditions} conditions are allowed.", "/having");
+
+        var order = new List<ResolvedOrder>();
+        foreach (var o in doc.OrderBy)
+        {
+            var field = Output(o.Field);
+            if (order.Any(x => x.Field.Path == field.Path)) throw QueryErrors.InvalidQuery($"Field '{field.Path}' is ordered more than once.", o.Field.Pointer);
+            order.Add(new ResolvedOrder(field, o.Direction));
+        }
+        // Group keys are unique per row: they make the order deterministic.
+        foreach (var g in groupBy.Where(g => order.All(o => o.Field.Path != g.Path))) order.Add(new ResolvedOrder(g, SortDirection.Ascending));
+
+        if (_joins.Count > _limits.MaximumRelationships) throw QueryErrors.TooComplex($"At most {_limits.MaximumRelationships} relationships may be used.");
+
+        return new ResolvedQuery
+        {
+            Dataset = root,
+            Joins = [.. _joins],
+            Select = [.. groupBy, .. aggregates],
+            GroupBy = [.. groupBy],
+            Where = where,
+            Having = having,
+            OrderBy = [.. order],
+            PageSize = PageSize(doc.Page),
+            Offset = Offset(doc.Page),
+            IsAggregate = true,
+        };
+    }
+
+    /// <summary>Synthetic descriptor for an aggregate result; types are normalized so every provider returns the same values.</summary>
+    private static ColumnDescriptor AggregateColumn(AggregateNode a, ColumnDescriptor? arg)
+    {
+        var kind = arg?.Kind;
+        var path = a.Pointer + "/function";
+        ScalarKind resultKind = a.Function switch
+        {
+            AggregateFunction.Count or AggregateFunction.CountDistinct => ScalarKind.Integer,
+            AggregateFunction.Sum when kind is ScalarKind.Integer or ScalarKind.Decimal or ScalarKind.Number => kind.Value,
+            AggregateFunction.Avg when kind is ScalarKind.Integer or ScalarKind.Decimal => ScalarKind.Decimal,
+            AggregateFunction.Avg when kind is ScalarKind.Number => ScalarKind.Number,
+            AggregateFunction.Min or AggregateFunction.Max when kind is ScalarKind.Integer or ScalarKind.Decimal or ScalarKind.Number
+                or ScalarKind.DateTime or ScalarKind.Date or ScalarKind.Time or ScalarKind.String => kind.Value,
+            _ => throw QueryErrors.InvalidValueType($"'{QueryParser.FunctionName(a.Function)}' cannot be applied to a {QueryOperators.TypeName(kind ?? ScalarKind.String)} field.", path),
+        };
+        var operators = QueryOperators.DefaultsFor(resultKind);
+        if (a.Function is AggregateFunction.Min or AggregateFunction.Max)
+            return arg! with
+            {
+                PublicName = a.Alias, Nullable = true, Exposed = true, Operators = operators, Policies = [],
+                Capabilities = ColumnCapabilities.Select | ColumnCapabilities.Filter | ColumnCapabilities.Sort,
+            };
+        var clr = resultKind switch { ScalarKind.Integer => typeof(long), ScalarKind.Decimal => typeof(decimal), _ => typeof(double) };
+        return new ColumnDescriptor
+        {
+            PublicName = a.Alias,
+            PropertyName = a.Alias,
+            ClrType = clr,
+            Kind = resultKind,
+            Nullable = a.Function is not (AggregateFunction.Count or AggregateFunction.CountDistinct),
+            Exposed = true,
+            Capabilities = ColumnCapabilities.Select | ColumnCapabilities.Filter | ColumnCapabilities.Sort,
+            Operators = operators,
+            Physical = new PhysicalColumn(a.Alias, null, clr, null, null),
+        };
+    }
+
+    private ResolvedComparison Comparison(ComparisonFilter c, Func<FieldRef, ResolvedField> resolve)
     {
         _conditions++;
-        var field = Field(c.Left, Usage.Filter);
+        var field = resolve(c.Left);
         var column = field.Column;
         if (!column.Operators.Contains(c.Operator))
             throw QueryErrors.UnsupportedOperator(root.PublicName, c.Left.Path, c.Operator, column.Operators, c.Pointer + "/operator");
-        return new ResolvedComparison(field, c.Operator, Operand(c, column));
+        return new ResolvedComparison(field, c.Operator, Operand(c, column, c.Pointer.StartsWith("/having", StringComparison.Ordinal)));
     }
 
-    private ResolvedOperand Operand(ComparisonFilter c, ColumnDescriptor column)
+    private ResolvedOperand Operand(ComparisonFilter c, ColumnDescriptor column, bool having = false)
     {
         var path = c.Pointer + "/value";
         switch (c.Right)
@@ -161,7 +274,7 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
                     throw QueryErrors.TooComplex($"At most {_limits.MaximumInValues} values are allowed.", path);
                 return new ResolvedList([.. l.Values.Select((v, i) => ValueCoercion.Coerce(v, column, $"{path}/{i}"))]);
             case FieldOperand f:
-                if (!model.Features.FieldComparison) throw QueryErrors.UnsupportedFeature("Field comparison is not enabled.", c.Pointer + "/compareTo");
+                if (!model.Features.FieldComparison || having) throw QueryErrors.UnsupportedFeature("Field comparison is not enabled here.", c.Pointer + "/compareTo");
                 var other = Field(f.Field, Usage.Filter);
                 if (other.Column.ClrType != column.ClrType)
                     throw QueryErrors.InvalidValueType("Compared fields must have the same type.", c.Pointer + "/compareTo");

@@ -1,0 +1,13 @@
+{
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "n"
+    },
+    {
+      "function": "sum",
+      "field": "total",
+      "alias": "n"
+    }
+  ]
+}

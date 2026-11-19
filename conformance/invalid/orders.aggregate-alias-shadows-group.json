@@ -1,0 +1,11 @@
+{
+  "groupBy": [
+    "status"
+  ],
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "status"
+    }
+  ]
+}

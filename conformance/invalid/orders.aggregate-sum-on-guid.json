@@ -1,0 +1,9 @@
+{
+  "aggregates": [
+    {
+      "function": "sum",
+      "field": "customer.id",
+      "alias": "s"
+    }
+  ]
+}

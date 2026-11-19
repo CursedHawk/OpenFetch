@@ -1,0 +1,37 @@
+{
+  "groupBy": [
+    "status"
+  ],
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "orders"
+    },
+    {
+      "function": "sum",
+      "field": "total",
+      "alias": "revenue"
+    },
+    {
+      "function": "avg",
+      "field": "total",
+      "alias": "average"
+    },
+    {
+      "function": "min",
+      "field": "createdAt",
+      "alias": "first"
+    },
+    {
+      "function": "max",
+      "field": "total",
+      "alias": "largest"
+    }
+  ],
+  "orderBy": [
+    {
+      "field": "revenue",
+      "direction": "desc"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "groupBy": [
+    "customer.country"
+  ],
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "orders"
+    },
+    {
+      "function": "sum",
+      "field": "total",
+      "alias": "revenue"
+    }
+  ],
+  "having": {
+    "type": "logical",
+    "operator": "or",
+    "children": [
+      {
+        "type": "comparison",
+        "field": "orders",
+        "operator": "gte",
+        "value": 3
+      },
+      {
+        "type": "comparison",
+        "field": "customer.country",
+        "operator": "eq",
+        "value": null
+      }
+    ]
+  },
+  "orderBy": [
+    {
+      "field": "customer.country"
+    }
+  ],
+  "page": {
+    "first": 10,
+    "offset": 0
+  }
+}

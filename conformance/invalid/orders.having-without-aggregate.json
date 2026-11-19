@@ -1,0 +1,11 @@
+{
+  "select": [
+    "id"
+  ],
+  "having": {
+    "type": "comparison",
+    "field": "id",
+    "operator": "eq",
+    "value": "x"
+  }
+}

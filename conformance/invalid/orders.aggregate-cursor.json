@@ -1,0 +1,11 @@
+{
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "n"
+    }
+  ],
+  "page": {
+    "after": "x"
+  }
+}

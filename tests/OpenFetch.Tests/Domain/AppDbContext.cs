@@ -7,13 +7,13 @@ public enum OrderStatus { Open, Processing, Shipped, Cancelled }
 [QueryDataset("customers", Description = "Customers")]
 public sealed class Customer
 {
-    [QueryColumn("id", Filter = true, Sort = true, Cursor = true)]
+    [QueryColumn("id", Filter = true, Sort = true, Cursor = true, Aggregate = true)]
     public Guid Id { get; set; }
 
     [QueryColumn("name", Filter = true, Sort = true)]
     public required string Name { get; set; }
 
-    [QueryColumn("country", Filter = true, Sort = true)]
+    [QueryColumn("country", Filter = true, Sort = true, Group = true)]
     public string? Country { get; set; }
 
     [QueryHidden]
@@ -22,7 +22,8 @@ public sealed class Customer
     public List<Order> Orders { get; set; } = [];
 }
 
-[QueryDataset("orders", Description = "Queryable sales orders", DefaultPageSize = 100, MaximumPageSize = 500)]
+[QueryDataset("orders", Description = "Queryable sales orders", DefaultPageSize = 100, MaximumPageSize = 500,
+    Capabilities = DatasetCapabilities.Default | DatasetCapabilities.Aggregation)]
 public sealed class Order
 {
     [QueryColumn("id", Filter = true, Sort = true, Cursor = true)]
@@ -32,14 +33,14 @@ public sealed class Order
         AllowedOperators = [QueryOperator.Equal, QueryOperator.NotEqual, QueryOperator.Contains, QueryOperator.StartsWith])]
     public required string Number { get; set; }
 
-    [QueryColumn("status", Filter = true, Sort = true,
+    [QueryColumn("status", Filter = true, Sort = true, Group = true,
         AllowedOperators = [QueryOperator.Equal, QueryOperator.NotEqual, QueryOperator.In])]
     public OrderStatus Status { get; set; }
 
     [QueryColumn("total", Filter = true, Sort = true, Aggregate = true, AuthorizationPolicy = "Orders.FinancialData")]
     public decimal Total { get; set; }
 
-    [QueryColumn("createdAt", Filter = true, Sort = true, Cursor = true)]
+    [QueryColumn("createdAt", Filter = true, Sort = true, Cursor = true, Aggregate = true)]
     public DateTimeOffset CreatedAt { get; set; }
 
     [QueryHidden]

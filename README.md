@@ -131,6 +131,7 @@ OpenFetch compiles SQL directly, so **EF global query filters (`HasQueryFilter`)
 | Operators | `eq ne gt gte lt lte in notIn between notBetween contains startsWith endsWith`, further limited per column and type. String comparisons follow the column collation, which is case-sensitive by default on PostgreSQL and case-insensitive by default on SQL Server. |
 | Relationships | Dotted paths (`customer.name`) in `select`, `where` and `orderBy`; returned as nested objects (`null` when the related row is absent or hidden). To-one only in v0.1. |
 | Values | Native JSON. Dates, GUIDs and enums are strings: see [docs/spec-profile.md](docs/spec-profile.md). |
+| Aggregation | Datasets opt in with `DatasetCapabilities.Aggregation`. `groupBy` takes `Group` columns; `aggregates` is a list of `{function, field?, alias}` using `count`, `countDistinct`, `sum`, `avg`, `min`, `max` over `Aggregate` columns; `having` filters on aliases or group fields. Row policies and RLS still apply before grouping. Results are identical across providers: counts and integer sums are 64-bit, and averages are `decimal(38,10)`. Paging is offset-only. |
 | Paging | `page.first` plus either `page.after` (cursor) or `page.offset` (bounded). The key is always appended as a tie-breaker, and `endCursor` is returned when every ordering field is cursor-eligible. |
 | Errors | Problem Details with stable `code` and JSON Pointer `path` (spec §24). |
 
@@ -216,6 +217,6 @@ dotnet nuget add source "https://gitlab.highgeek.eu/api/v4/projects/5/packages/n
 
 - **Providers:** PostgreSQL and SQL Server. On SQL Server, `distinct` queries use native NULL ordering, because ORDER BY may only reference select-list items under DISTINCT.
 - **Plan reuse:** SQL text depends only on the query shape, never on values or tenants, so the provider statement cache and the database plan cache reuse plans without a separate OpenFetch cache.
-- **Not yet supported:** aggregation, grouping, collection relationships, and inheritance or owned-type datasets. They are rejected at startup or with `unsupported_provider_feature`.
+- **Not yet supported (in progress, E12):** collection relationships, and inheritance or owned-type datasets. They are rejected at startup.
 - **Response buffering:** responses are buffered up to `MaximumResponseBytes` (4 MiB by default) before they are sent, so a limit breach still returns a clean error status.
 - **Rate limiting:** `AddOpenFetchRateLimiting` limits concurrency only. To limit request rate, attach your own policy to the builder that `MapOpenFetch` returns.

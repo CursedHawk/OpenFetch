@@ -1,0 +1,19 @@
+{
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "orders"
+    },
+    {
+      "function": "countDistinct",
+      "field": "customer.id",
+      "alias": "customers"
+    }
+  ],
+  "where": {
+    "type": "comparison",
+    "field": "total",
+    "operator": "gt",
+    "value": 150
+  }
+}

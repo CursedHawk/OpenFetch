@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "select": [],
+  "where": null,
+  "orderBy": [
+    "revenue desc"
+  ],
+  "page": {},
+  "distinct": false
+}

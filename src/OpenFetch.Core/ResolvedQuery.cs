@@ -21,6 +21,10 @@ public sealed record ResolvedQuery
     public bool Distinct { get; init; }
     /// <summary>True when every order field can be encoded in a cursor (root, non-null, cursor-eligible or key).</summary>
     public bool CursorCapable { get; init; }
+    /// <summary>Aggregation (§21): group keys. When aggregating, <see cref="Select"/> is the group fields followed by aggregate fields.</summary>
+    public ImmutableArray<ResolvedField> GroupBy { get; init; } = [];
+    public ResolvedFilter? Having { get; init; }
+    public bool IsAggregate { get; init; }
 }
 
 public sealed record ResolvedJoin(string Alias, string ParentAlias, string Path, RelationshipDescriptor Relationship, DatasetDescriptor Target)
@@ -30,7 +34,14 @@ public sealed record ResolvedJoin(string Alias, string ParentAlias, string Path,
 }
 
 /// <summary>A column on a specific table alias. <see cref="Path"/> is the logical output path (<c>customer.name</c>).</summary>
-public sealed record ResolvedField(string Alias, string Path, ColumnDescriptor Column);
+public sealed record ResolvedField(string Alias, string Path, ColumnDescriptor Column)
+{
+    /// <summary>Set for aggregate outputs: <see cref="Column"/> is then a synthetic descriptor of the result type and <see cref="Path"/> the alias.</summary>
+    public ResolvedAggregate? Aggregate { get; init; }
+}
+
+/// <summary>An aggregate over an optional argument field (null = count rows).</summary>
+public sealed record ResolvedAggregate(AggregateFunction Function, ResolvedField? Argument);
 
 public sealed record ResolvedOrder(ResolvedField Field, SortDirection Direction);
 
@@ -77,6 +88,7 @@ public sealed record ResultColumn(ResolvedField Field, ResultRole Role)
     public static ImmutableArray<ResultColumn> For(ResolvedQuery q)
     {
         var columns = q.Select.Select(f => new ResultColumn(f, ResultRole.Output)).ToList();
+        if (q.IsAggregate) return [.. columns]; // grouped rows: no per-row keys exist for cursors or join-null detection
         if (q.CursorCapable)
             foreach (var o in q.OrderBy.Where(o => !columns.Any(c => Same(c.Field, o.Field))))
                 columns.Add(new ResultColumn(o.Field, ResultRole.Cursor));
@@ -85,7 +97,7 @@ public sealed record ResultColumn(ResolvedField Field, ResultRole Role)
         return [.. columns];
     }
 
-    public static bool Same(ResolvedField a, ResolvedField b) => a.Alias == b.Alias && a.Column == b.Column;
+    public static bool Same(ResolvedField a, ResolvedField b) => a.Alias == b.Alias && a.Column == b.Column && a.Aggregate == b.Aggregate;
 }
 
 public sealed record QueryPlan(string CommandText, ImmutableArray<QueryParameter> Parameters, ImmutableArray<ResultColumn> ResultColumns)

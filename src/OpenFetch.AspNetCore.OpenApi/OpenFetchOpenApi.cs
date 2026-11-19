@@ -79,6 +79,36 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
             Type = JsonSchemaType.String | JsonSchemaType.Number | JsonSchemaType.Boolean | JsonSchemaType.Null,
         };
 
+        if (model.Datasets.Values.Any(d => d.Capabilities.HasFlag(DatasetCapabilities.Aggregation)))
+        {
+            schemas["OpenFetchHavingComparison"] = Object(new()
+            {
+                ["type"] = Const("comparison"),
+                ["field"] = new OpenApiSchema { Type = JsonSchemaType.String, Description = "An aggregate alias or a groupBy field." },
+                ["operator"] = Enum(QueryOperators.Comparison.Concat(QueryOperators.Collections).Order().Select(QueryOperators.Name)),
+                ["value"] = new OpenApiSchema { OneOf = [Ref("OpenFetchScalar"), new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref("OpenFetchScalar") }] },
+            }, "type", "field", "operator");
+            schemas["OpenFetchHavingLogical"] = Object(new()
+            {
+                ["type"] = Const("logical"),
+                ["operator"] = Enum(["and", "or"]),
+                ["children"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref("OpenFetchHavingFilter"), MinItems = 1 },
+            }, "type", "operator", "children");
+            schemas["OpenFetchHavingNot"] = Object(new() { ["type"] = Const("not"), ["operand"] = Ref("OpenFetchHavingFilter") }, "type", "operand");
+            schemas["OpenFetchHavingFilter"] = new OpenApiSchema
+            {
+                OneOf = [Ref("OpenFetchHavingComparison"), Ref("OpenFetchHavingLogical"), Ref("OpenFetchHavingNot")],
+                Discriminator = new OpenApiDiscriminator
+                {
+                    PropertyName = "type",
+                    Mapping = new Dictionary<string, OpenApiSchemaReference>
+                    {
+                        ["comparison"] = Ref("OpenFetchHavingComparison"), ["logical"] = Ref("OpenFetchHavingLogical"), ["not"] = Ref("OpenFetchHavingNot"),
+                    },
+                },
+            };
+        }
+
         foreach (var d in model.Datasets.Values.Where(d => Visible(model, d.PublicName)).OrderBy(d => d.PublicName, StringComparer.Ordinal))
             AddDataset(schemas, model, d);
         return Task.CompletedTask;
@@ -192,7 +222,27 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
         schemas[x + "Page"] = Object(page);
 
         if (d.Capabilities.HasFlag(DatasetCapabilities.Distinct)) query["distinct"] = Scalar(JsonSchemaType.Boolean);
-        schemas[x + "Query"] = Object(query, "select");
+
+        var aggregation = d.Capabilities.HasFlag(DatasetCapabilities.Aggregation);
+        if (aggregation)
+        {
+            // §21: groupBy/aggregates replace select; having filters aggregate aliases and group fields.
+            var groupable = Paths(model, d, ColumnCapabilities.Group, RelationshipCapabilities.Select, allowed);
+            var aggregatable = Paths(model, d, ColumnCapabilities.Aggregate, RelationshipCapabilities.Select, allowed);
+            schemas[x + "GroupableField"] = Enum(groupable.Select(p => p.Path));
+            schemas[x + "AggregatableField"] = Enum(aggregatable.Select(p => p.Path));
+            schemas[x + "Aggregate"] = Object(new()
+            {
+                ["function"] = Enum(QueryParser.FunctionNames),
+                ["field"] = Ref(x + "AggregatableField"),
+                ["alias"] = new OpenApiSchema { Type = JsonSchemaType.String, Pattern = "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
+            }, "function", "alias");
+            query["groupBy"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref(x + "GroupableField"), UniqueItems = true };
+            query["aggregates"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref(x + "Aggregate") };
+            query["having"] = Ref("OpenFetchHavingFilter");
+            ((OpenApiSchema)query["select"]).Description += " Not allowed in aggregate queries (groupBy/aggregates).";
+        }
+        schemas[x + "Query"] = aggregation ? Object(query) : Object(query, "select");
         schemas[x + "Query"].Description = d.Description;
 
         // §18.5: a superset row; every property optional because only selected fields are returned.
@@ -208,7 +258,13 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
                 Extensions = r.Policies.IsEmpty ? null : new Dictionary<string, IOpenApiExtension> { ["x-openfetch-authorization"] = Policies(r.Policies) },
             };
         }
-        schemas[x + "Row"] = new OpenApiSchema { Type = JsonSchemaType.Object, Properties = row, Description = $"A {d.PublicName} row. Only selected fields are present." };
+        schemas[x + "Row"] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Object,
+            Properties = row,
+            Description = $"A {d.PublicName} row. Only selected fields are present." + (aggregation ? " Aggregate queries add one property per aggregate alias." : ""),
+            AdditionalProperties = aggregation ? Ref("OpenFetchScalar") : null,
+        };
 
         schemas[x + "Result"] = Result(x + "Row");
 
@@ -369,7 +425,7 @@ public sealed class OpenFetchOperationTransformer(QueryEngine engine, Func<IEnum
             ["offsetPagination"] = d.Capabilities.HasFlag(DatasetCapabilities.OffsetPagination),
             ["distinct"] = d.Capabilities.HasFlag(DatasetCapabilities.Distinct),
             ["relationships"] = relationships.Count > 0,
-            ["aggregation"] = false,
+            ["aggregation"] = d.Capabilities.HasFlag(DatasetCapabilities.Aggregation),
         });
         ext["x-openfetch-limits"] = OpenFetchDocumentTransformer.Ext(new JsonObject
         {

@@ -11,7 +11,16 @@ public static class QueryParser
 {
     public const string Version = "1.0";
 
-    private static readonly string[] RootProperties = ["version", "select", "where", "orderBy", "page", "distinct"];
+    private static readonly string[] RootProperties = ["version", "select", "where", "orderBy", "page", "distinct", "groupBy", "aggregates", "having"];
+
+    private static readonly (string Name, AggregateFunction Function)[] Functions =
+    [
+        ("count", AggregateFunction.Count), ("countDistinct", AggregateFunction.CountDistinct), ("sum", AggregateFunction.Sum),
+        ("avg", AggregateFunction.Avg), ("min", AggregateFunction.Min), ("max", AggregateFunction.Max),
+    ];
+
+    public static string FunctionName(AggregateFunction f) => Functions.First(x => x.Function == f).Name;
+    public static IEnumerable<string> FunctionNames => Functions.Select(f => f.Name);
 
     /// <summary>An empty document (no select); used as the base for fixed projections.</summary>
     public static readonly QueryDocument Empty = new(Version, [], null, [], new PageNode(null, null, null), false);
@@ -57,9 +66,18 @@ public static class QueryParser
                 if (version != QueryParser.Version) throw QueryErrors.UnsupportedVersion(version, "/version");
             }
 
+            var groupBy = ImmutableArray<FieldRef>.Empty;
+            if (root.TryGetProperty("groupBy", out var g))
+                groupBy = [.. Array(g, "/groupBy", "an array of field names").Select((e, i) => new FieldRef(String(e, $"/groupBy/{i}"), $"/groupBy/{i}"))];
+            var aggregates = ImmutableArray<AggregateNode>.Empty;
+            if (root.TryGetProperty("aggregates", out var a))
+                aggregates = [.. Array(a, "/aggregates", "an array of aggregates").Select((e, i) => Aggregate(e, $"/aggregates/{i}"))];
+            var aggregate = !groupBy.IsEmpty || !aggregates.IsEmpty;
+
             var hasSelect = root.TryGetProperty("select", out var select);
             if (fixedSelect && hasSelect) throw QueryErrors.InvalidQuery("This projection has a fixed field list; 'select' is not allowed.", "/select");
-            if (!fixedSelect && !hasSelect) throw QueryErrors.InvalidQuery("'select' is required.", "/select");
+            if (aggregate && hasSelect) throw QueryErrors.InvalidQuery("Aggregate queries return their groupBy fields and aggregate aliases; 'select' is not allowed.", "/select");
+            if (!fixedSelect && !aggregate && !hasSelect) throw QueryErrors.InvalidQuery("'select' is required.", "/select");
             var fields = !hasSelect ? [] : Array(select, "/select", "a non-empty array of field names")
                 .Select((e, i) => new FieldRef(String(e, $"/select/{i}"), $"/select/{i}")).ToImmutableArray();
             if (hasSelect && fields.IsEmpty) throw QueryErrors.InvalidQuery("'select' must contain at least one field.", "/select");
@@ -82,7 +100,27 @@ public static class QueryParser
                     _ => throw QueryErrors.InvalidQuery("'distinct' must be a boolean.", "/distinct"),
                 };
 
-            return new QueryDocument(version, fields, where, order, page, distinct);
+            FilterNode? having = null;
+            if (root.TryGetProperty("having", out var h) && h.ValueKind != JsonValueKind.Null)
+            {
+                if (!aggregate) throw QueryErrors.InvalidQuery("'having' requires 'groupBy' or 'aggregates'.", "/having");
+                having = Filter(h, "/having", 1);
+            }
+
+            return new QueryDocument(version, fields, where, order, page, distinct) { GroupBy = groupBy, Aggregates = aggregates, Having = having };
+        }
+
+        private static AggregateNode Aggregate(JsonElement e, string path)
+        {
+            Object(e, path, ["function", "field", "alias"]);
+            var name = String(Required(e, "function", path), path + "/function");
+            var function = Functions.FirstOrDefault(f => f.Name == name);
+            if (function.Name is null) throw QueryErrors.InvalidQuery($"Unknown aggregate function '{name}'.", path + "/function");
+            FieldRef? field = e.TryGetProperty("field", out var f) && f.ValueKind != JsonValueKind.Null
+                ? new FieldRef(String(f, path + "/field"), path + "/field") : null;
+            if (field is null && function.Function != AggregateFunction.Count)
+                throw QueryErrors.InvalidQuery($"'{name}' requires a field.", path + "/field");
+            return new AggregateNode(function.Function, field, String(Required(e, "alias", path), path + "/alias"), path);
         }
 
         private static OrderNode Order(JsonElement e, string path)

@@ -15,6 +15,7 @@ public sealed partial class PostgreSqlCompiler : SqlCompiler
     protected override string True => "TRUE";
     protected override string False => "FALSE";
     protected override string LikeWildcards => "%_";
+    protected override string AverageDecimalType => "numeric(38,10)";
 
     [GeneratedRegex("^[a-z_][a-z0-9_]{0,62}$")]
     private static partial Regex SettingKey();

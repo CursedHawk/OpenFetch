@@ -1,0 +1,9 @@
+{
+  "aggregates": [
+    {
+      "function": "max",
+      "field": "number",
+      "alias": "m"
+    }
+  ]
+}

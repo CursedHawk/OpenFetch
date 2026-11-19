@@ -1,0 +1,17 @@
+{
+  "groupBy": [
+    "status"
+  ],
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "n"
+    }
+  ],
+  "having": {
+    "type": "comparison",
+    "field": "total",
+    "operator": "gt",
+    "value": 1
+  }
+}

@@ -8,11 +8,13 @@ Spec §22. The score is computed on the **secured** query, after row-policy inje
 | Each selected field | 1 |
 | Each relationship join | 15 |
 | `distinct` | 20 |
-| Each comparison (client or policy) | 2 |
+| Each `groupBy` field | 15 |
+| Each aggregate | 10 |
+| Each comparison (client, `having`, or policy) | 2 |
 | Each `or` group (client or policy) | 5 |
 | `contains` / `endsWith` (leading wildcard) | +25 |
 | Client comparison on a non-indexed column | +20 |
-| Ordering field on a non-indexed column (root key columns are exempt) | +30 |
+| Ordering field on a non-indexed column (root key columns are exempt; not charged for aggregate queries, which sort grouped rows) | +30 |
 
 A column counts as indexed when it is the leading column of an EF index or key.
 

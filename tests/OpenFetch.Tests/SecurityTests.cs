@@ -240,6 +240,23 @@ public class IsolationTests(PostgresFixture pg)
     }
 
     [Fact]
+    public async Task Counts_and_groups_only_see_the_callers_tenant()
+    {
+        static long Count(JsonElement r) => r.GetProperty("data")[0].GetProperty("n").GetInt64();
+        const string count = """{"aggregates":[{"function":"count","alias":"n"}]}""";
+        Assert.Equal(9, Count(await Run(TestEngine.Create(), pg.ConnectionString, "orders", count, SeedData.TenantA)));
+
+        var options = new OpenFetchOptions();
+        options.Security.UseDatabaseRowLevelSecurity();
+        var rlsOnly = TestEngine.Create(TestModel.Build(), security: options.Security);
+        Assert.Equal(10, Count(await Run(rlsOnly, pg.AppConnectionString(), "orders", count, SeedData.TenantB))); // RLS alone: includes soft-deleted, never tenant A
+
+        var groups = await Run(TestEngine.Create(), pg.ConnectionString, "orders",
+            """{"groupBy":["customer.country"],"aggregates":[{"function":"countDistinct","field":"customer.id","alias":"n"}]}""", SeedData.TenantB);
+        Assert.Equal(["SK", null], groups.GetProperty("data").EnumerateArray().Select(r => r.GetProperty("customer").GetProperty("country").GetString()));
+    }
+
+    [Fact]
     public async Task Error_responses_do_not_differ_between_tenants()
     {
         // Oracle check: probing another tenant's id yields an empty page, exactly like a non-existent id.

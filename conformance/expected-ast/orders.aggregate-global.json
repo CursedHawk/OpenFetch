@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "select": [],
+  "where": {
+    "field": "total",
+    "operator": "gt",
+    "value": "number:150"
+  },
+  "orderBy": [],
+  "page": {},
+  "distinct": false
+}
