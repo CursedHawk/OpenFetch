@@ -11,6 +11,9 @@ public sealed class SqlServerFixture : IAsyncLifetime
 {
     private readonly MsSqlContainer _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
 
+    /// <summary>Administrative login (not RLS-bound); used for setup and for databases without security policies.</summary>
+    public string AdminConnectionString => new SqlConnectionStringBuilder(_container.GetConnectionString()) { TrustServerCertificate = true }.ConnectionString;
+
     public string AppConnectionString(int maxPoolSize = 10) => new SqlConnectionStringBuilder(_container.GetConnectionString())
     {
         UserID = "openfetch_app",

@@ -32,15 +32,21 @@ public class EfCoreReaderTests
         [.. EfCoreModelReader.Read(new EdgeContext(new DbContextOptionsBuilder<EdgeContext>().UseNpgsql("Host=unused").Options).Model)];
 
     [Fact]
-    public void Unsupported_shapes_are_flagged_and_fail_only_when_exposed()
+    public void Hierarchies_and_owned_types_are_read_not_rejected()
     {
         var mappings = Read();
-        Assert.Contains("inheritance", mappings.Single(m => m.ClrType == typeof(Dog)).UnsupportedReason);
-        Assert.Contains("owned", mappings.Single(m => m.ClrType == typeof(Address)).UnsupportedReason);
+        var dog = mappings.Single(m => m.ClrType == typeof(Dog));
+        Assert.Null(dog.UnsupportedReason);
+        Assert.Equal("Discriminator", dog.TypeFilter!.Value.Property);
+        Assert.Equal(["Dog"], dog.TypeFilter.Value.Values);
+        Assert.Null(mappings.Single(m => m.ClrType == typeof(Animal)).TypeFilter); // the root sees every row
+        Assert.DoesNotContain(mappings, m => m.ClrType == typeof(Address));       // owned reference: flattened into its owner
+        Assert.Contains(mappings.Single(m => m.ClrType == typeof(Person)).Properties, p => p.Name == "Home.City" && p.DeclaringType == typeof(Address));
 
-        var ex = Assert.Throws<OpenFetchConfigurationException>(() => QueryModelBuilder.Build(mappings, new OpenFetchOptions()));
-        Assert.Contains(ex.Errors, e => e.Contains("'dogs'") && e.Contains("inheritance"));
-        Assert.DoesNotContain(ex.Errors, e => e.Contains("Address")); // never exposed, never an error
+        var model = QueryModelBuilder.Build(mappings, new OpenFetchOptions().Configure(o => o.Dataset<Person>().AcknowledgeEfQueryFilterNotApplied()));
+        Assert.Equal(["animals", "dogs", "people"], model.Datasets.Keys.Order());
+        Assert.Single(model.Datasets["dogs"].RowPolicies);
+        Assert.DoesNotContain("home.city", model.Datasets["people"].Columns.Keys); // owner navigation not opted in
     }
 
     [Fact]

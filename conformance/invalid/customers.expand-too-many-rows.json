@@ -1,0 +1,17 @@
+{
+  "select": [
+    "id"
+  ],
+  "page": {
+    "first": 100
+  },
+  "expand": [
+    {
+      "relationship": "orders",
+      "select": [
+        "id"
+      ],
+      "first": 100
+    }
+  ]
+}

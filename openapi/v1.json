@@ -106,7 +106,7 @@
         "additionalProperties": false,
         "properties": {
           "first": {
-            "description": "Rows per parent (default: the related dataset\u0027s default page size).",
+            "description": "Rows per parent (default: 10, at most the related dataset\u0027s maximum page size).",
             "minimum": 1,
             "type": "integer"
           },
@@ -1870,7 +1870,7 @@
       "name": "OpenFetch"
     }
   ],
-  "x-openfetch-model-version": "08fab22f7b8fae06",
+  "x-openfetch-model-version": "f3e3d424250ddfe4",
   "x-openfetch-provider": {
     "compilerVersion": "1",
     "name": "postgresql"

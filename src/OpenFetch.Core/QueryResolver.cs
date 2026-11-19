@@ -14,6 +14,7 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
     private readonly List<ResolvedJoin> _joins = [];
     private int _conditions;
     private int _subqueries;
+    private long _expandedRows;
 
     public ResolvedQuery Resolve(QueryDocument doc)
     {
@@ -27,6 +28,9 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         foreach (var (e, i) in expansions.Select((e, i) => (e, i)))
             if (expansions.Take(i).Any(x => x.Name == e.Name) || select.Any(s => s.Path.Split('.')[0] == e.Name))
                 throw QueryErrors.InvalidQuery($"'{e.Name}' is already part of the result.", doc.Expand[i].Pointer + "/relationship");
+        // Worst case rows fetched by expansions: parent page size × per-parent limit, summed (bounded before execution).
+        if (_expandedRows * PageSize(doc.Page) > _limits.MaximumExpandedRows)
+            throw QueryErrors.TooComplex($"Expansions could return more than {_limits.MaximumExpandedRows} rows; lower page.first or expand 'first'.", "/expand");
 
         ResolvedFilter? where = null;
         if (doc.Where is not null)
@@ -122,6 +126,8 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         var alias = "t0";
         for (var depth = 1; depth < segments.Length; depth++)
         {
+            // Owned (table-split) members are dotted column names: they win over relationship traversal.
+            if (dataset.Columns.ContainsKey(string.Join('.', segments[(depth - 1)..]))) { segments = [.. segments[..(depth - 1)], string.Join('.', segments[(depth - 1)..])]; break; }
             // Dotted paths are to-one only; collections are reached through 'any' filters and 'expand'.
             if (!dataset.Relationships.TryGetValue(segments[depth - 1], out var rel) || rel.Cardinality == Cardinality.Many || !rel.Can(relationCap) || !allowed(rel.Policies)
                 || depth > rel.MaximumDepth || depth > root.MaximumRelationshipDepth
@@ -198,8 +204,9 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         var order = e.OrderBy.Select(o => new ResolvedOrder(LocalField(target, alias, o.Field, ColumnCapabilities.Sort), o.Direction)).ToList();
         foreach (var k in target.Key.Where(k => order.All(o => o.Field.Column != k))) order.Add(new ResolvedOrder(new ResolvedField(alias, k.PublicName, k), SortDirection.Ascending));
 
-        var limit = e.First ?? target.DefaultPageSize;
+        var limit = e.First ?? Math.Min(10, target.DefaultPageSize); // small default: expansions multiply the parent page
         if (limit < 1 || limit > target.MaximumPageSize) throw QueryErrors.PageSizeExceeded(target.MaximumPageSize, e.Pointer + "/first");
+        _expandedRows += limit;
         var (source, foreignKey) = rel.Join[0];
         return new ResolvedExpansion(rel.PublicName, rel, target, new ResolvedField("t0", "$expand:" + rel.PublicName, source), foreignKey,
             select, where, [.. order], limit);
@@ -250,6 +257,8 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
             ?? throw QueryErrors.UnknownField(root.PublicName, f.Path, f.Pointer);
         if (doc.Having is not null && !root.Capabilities.HasFlag(DatasetCapabilities.Filter))
             throw QueryErrors.UnsupportedFeature("Filtering is not enabled for this dataset.", "/having");
+        if (doc.Having is not null && Contains<AnyFilter>(doc.Having, out var any))
+            throw QueryErrors.InvalidQuery("'having' can only reference aggregate aliases and grouped fields; use 'any' in 'where'.", any.Pointer);
         var having = doc.Having is null ? null : Filter(doc.Having, f => Output(f, ColumnCapabilities.Filter), root, "t0");
         if (_conditions > _limits.MaximumConditions) throw QueryErrors.TooComplex($"At most {_limits.MaximumConditions} conditions are allowed.", "/having");
 
@@ -280,6 +289,18 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
             Offset = Offset(doc.Page),
             IsAggregate = true,
         };
+    }
+
+    private static bool Contains<T>(FilterNode node, out T found) where T : FilterNode
+    {
+        found = null!;
+        switch (node)
+        {
+            case T t: found = t; return true;
+            case LogicalFilter l: foreach (var c in l.Children) if (Contains(c, out found)) return true; return false;
+            case NotFilter n: return Contains(n.Operand, out found);
+            default: return false;
+        }
     }
 
     /// <summary>Synthetic descriptor for an aggregate result; types are normalized so every provider returns the same values.</summary>

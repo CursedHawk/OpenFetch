@@ -63,6 +63,7 @@ public static class MetadataDocuments
         {
             w.WriteStartObject();
             w.WriteString("name", d.PublicName);
+            if (d.Internal) w.WriteBoolean("queryable", false); // reachable only through its owner's collection relationship
             if (d.Description is not null) w.WriteString("description", d.Description);
             if (d.Deprecated) { w.WriteBoolean("deprecated", true); w.WriteString("deprecationMessage", d.DeprecationMessage); }
             w.WriteNumber("defaultPageSize", d.DefaultPageSize);

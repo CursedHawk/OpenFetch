@@ -34,6 +34,7 @@ public abstract class SqlCompiler : IQueryCompiler
 
     public QueryPlan Compile(ResolvedQuery q)
     {
+        if (!q.Secured) throw new InvalidOperationException("Refusing to compile a query that has not passed row-policy injection.");
         var columns = ResultColumn.For(q);
         var b = new SqlBuilder(this);
         var sql = b.Sql;
@@ -48,13 +49,12 @@ public abstract class SqlCompiler : IQueryCompiler
         }
 
         sql.Append("\nFROM ");
-        Table(sql, q.Dataset.Table);
-        sql.Append(" AS t0");
+        Source(b, q.Dataset, "t0", nested: false);
         foreach (var j in q.Joins)
         {
             sql.Append("\nLEFT JOIN ");
-            Table(sql, j.Target.Table);
-            sql.Append(" AS ").Append(j.Alias).Append(" ON ");
+            Source(b, j.Target, j.Alias, nested: true);
+            sql.Append(" ON ");
             for (var i = 0; i < j.Relationship.Join.Length; i++)
             {
                 if (i > 0) sql.Append(" AND ");
@@ -111,6 +111,7 @@ public abstract class SqlCompiler : IQueryCompiler
     /// </summary>
     public CompiledCommand CompileExpansion(ResolvedExpansion e, IReadOnlyList<object> parentKeys)
     {
+        if (!e.Secured) throw new InvalidOperationException("Refusing to compile an expansion that has not passed row-policy injection.");
         var b = new SqlBuilder(this);
         var sql = b.Sql;
         var alias = e.OrderBy[0].Field.Alias;
@@ -126,8 +127,8 @@ public abstract class SqlCompiler : IQueryCompiler
         sql.Append(" ORDER BY ");
         for (var i = 0; i < e.OrderBy.Length; i++) { if (i > 0) sql.Append(", "); OrderTerm(b, e.OrderBy[i], null); }
         sql.Append(") AS rn\n  FROM ");
-        Table(sql, e.Target.Table);
-        sql.Append(" AS ").Append(alias).Append("\n  WHERE (");
+        Source(b, e.Target, alias, nested: false);
+        sql.Append("\n  WHERE (");
         In(b, fk, [.. parentKeys], negate: false);
         sql.Append(')');
         if (e.Policy is not null) { sql.Append(" AND ("); b.Filter(e.Policy); sql.Append(')'); }
@@ -135,6 +136,42 @@ public abstract class SqlCompiler : IQueryCompiler
         sql.Append(") x\nWHERE x.rn <= ").Append(b.Parameter(e.Limit)).Append("\nORDER BY x.c0, x.rn");
         if (b.Parameters.Count > MaximumParameters) throw QueryErrors.TooComplex("The query needs more parameters than the provider allows.");
         return new CompiledCommand(sql.ToString(), [.. b.Parameters]);
+    }
+
+    /// <summary>
+    /// The physical row source of a dataset under <paramref name="alias"/>: a table, a table with TPT base tables joined 1:1
+    /// (aliases alias_1..n, parenthesized when nested in a join), or a TPC UNION ALL whose columns are named after the dataset columns.
+    /// </summary>
+    internal void Source(SqlBuilder b, DatasetDescriptor d, string alias, bool nested)
+    {
+        var sql = b.Sql;
+        if (!d.Union.IsEmpty)
+        {
+            var columns = d.AllColumns.Select(c => c.Physical.Name).Distinct().ToList();
+            sql.Append('(');
+            for (var i = 0; i < d.Union.Length; i++)
+            {
+                if (i > 0) sql.Append(" UNION ALL ");
+                sql.Append("SELECT ").Append(string.Join(", ", columns.Select(c => Quote(d.Union[i].Columns[c]) + " AS " + Quote(c)))).Append(" FROM ");
+                Table(sql, d.Union[i].Table);
+            }
+            sql.Append(") AS ").Append(alias);
+            return;
+        }
+        var paren = nested && !d.InheritedTables.IsEmpty;
+        if (paren) sql.Append('(');
+        Table(sql, d.Table);
+        sql.Append(" AS ").Append(alias);
+        for (var i = 0; i < d.InheritedTables.Length; i++)
+        {
+            var t = d.InheritedTables[i];
+            var joined = alias + "_" + (i + 1);
+            sql.Append(" INNER JOIN ");
+            Table(sql, t.Table);
+            sql.Append(" AS ").Append(joined).Append(" ON ")
+               .Append(string.Join(" AND ", t.Key.Select(k => $"{alias}.{Quote(k.Main)} = {joined}.{Quote(k.Joined)}")));
+        }
+        if (paren) sql.Append(')');
     }
 
     internal void Table(StringBuilder sql, PhysicalTable t)
@@ -195,7 +232,13 @@ public abstract class SqlCompiler : IQueryCompiler
                     break;
             }
         }
-        public void Column(string alias, ColumnDescriptor c) => Sql.Append(alias).Append('.').Append(dialect.Quote(c.Physical.Name));
+        /// <summary>TPT columns that live in a base table use that table's alias (alias_n).</summary>
+        public void Column(string alias, ColumnDescriptor c)
+        {
+            Sql.Append(alias);
+            if (c.Physical.Table > 0) Sql.Append('_').Append(c.Physical.Table);
+            Sql.Append('.').Append(dialect.Quote(c.Physical.Name));
+        }
 
         public static object? ToProvider(ColumnDescriptor c, object? value) =>
             value is null ? null : c.Physical.ToProvider is { } convert ? convert(value) : value;
@@ -228,9 +271,10 @@ public abstract class SqlCompiler : IQueryCompiler
                     break;
                 case ResolvedExists x:
                     // The target's trusted policy lives inside the subquery: hidden related rows never satisfy 'any'.
+                    if (!x.Secured) throw new InvalidOperationException("Refusing to compile an EXISTS that has not passed row-policy injection.");
                     Sql.Append("EXISTS (SELECT 1 FROM ");
-                    dialect.Table(Sql, x.Target.Table);
-                    Sql.Append(" AS ").Append(x.Alias).Append(" WHERE ");
+                    dialect.Source(this, x.Target, x.Alias, nested: false);
+                    Sql.Append(" WHERE ");
                     var (source, target) = x.Relationship.Join[0];
                     Column(x.Alias, target);
                     Sql.Append(" = ");

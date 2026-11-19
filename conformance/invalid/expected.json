@@ -31,6 +31,10 @@
     "code": "unknown_field",
     "path": "/expand/0/select/0"
   },
+  "customers.expand-too-many-rows": {
+    "code": "query_too_complex",
+    "path": "/expand"
+  },
   "customers.expand-unknown": {
     "code": "invalid_relationship",
     "path": "/expand/0/relationship"
@@ -162,6 +166,10 @@
   "orders.filter-type-unknown": {
     "code": "invalid_query",
     "path": "/where/type"
+  },
+  "orders.having-any": {
+    "code": "invalid_query",
+    "path": "/having"
   },
   "orders.having-without-aggregate": {
     "code": "invalid_query",

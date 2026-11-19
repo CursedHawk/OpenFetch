@@ -15,6 +15,8 @@ public sealed record QueryLimits
     public int MaximumSelectedFields { get; init; } = 50;
     public int MaximumComplexity { get; init; } = 150;
     public int MaximumResponseBytes { get; init; } = 4 * 1024 * 1024;
+    /// <summary>Upper bound on rows fetched by collection expansions per request (page size × per-parent 'first', summed).</summary>
+    public int MaximumExpandedRows { get; init; } = 5_000;
     public TimeSpan CommandTimeout { get; init; } = TimeSpan.FromSeconds(10);
     public TimeSpan CursorLifetime { get; init; } = TimeSpan.FromHours(1);
 }

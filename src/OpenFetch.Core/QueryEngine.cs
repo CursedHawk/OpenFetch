@@ -49,7 +49,7 @@ public sealed class QueryEngine(
     public async ValueTask<PreparedQuery> PrepareAsync(string dataset, ReadOnlyMemory<byte> body, QuerySecurityContext context, CancellationToken ct, string? projection = null)
     {
         // Unknown and inaccessible datasets (and projections) produce the identical error (§16.2).
-        if (!model.Datasets.TryGetValue(dataset, out var root) || !await context.IsAuthorizedAsync(root.Policies, ct))
+        if (!model.Datasets.TryGetValue(dataset, out var root) || root.Internal || !await context.IsAuthorizedAsync(root.Policies, ct))
             throw QueryErrors.UnknownDataset(projection is null ? dataset : dataset + "/" + projection);
         var fixedFields = ImmutableArray<string>.Empty;
         if (projection is not null && !root.Projections.TryGetValue(projection, out fixedFields))
@@ -112,13 +112,15 @@ public sealed class QueryEngine(
         foreach (var j in q.Joins) joins.Add(j with { Policy = await PolicyAsync(j.Target, j.Alias, context, ct) });
         var expansions = ImmutableArray.CreateBuilder<ResolvedExpansion>();
         foreach (var e in q.Expansions)
-            expansions.Add(e with { Policy = await PolicyAsync(e.Target, e.OrderBy[0].Field.Alias, context, ct), Where = await SecureFilterAsync(e.Where, context, ct) });
+            expansions.Add(e with { Policy = await PolicyAsync(e.Target, e.OrderBy[0].Field.Alias, context, ct), Where = await SecureFilterAsync(e.Where, context, ct), Secured = true });
         return q with
         {
             Policy = await PolicyAsync(q.Dataset, "t0", context, ct),
             Joins = joins.ToImmutable(),
             Where = await SecureFilterAsync(q.Where, context, ct),
+            Having = await SecureFilterAsync(q.Having, context, ct), // the resolver already rejects 'any' here; defense in depth
             Expansions = expansions.ToImmutable(),
+            Secured = true,
         };
     }
 
@@ -134,7 +136,7 @@ public sealed class QueryEngine(
             case ResolvedNot n:
                 return n with { Operand = (await SecureFilterAsync(n.Operand, context, ct))! };
             case ResolvedExists x:
-                return x with { Policy = await PolicyAsync(x.Target, x.Alias, context, ct), Where = await SecureFilterAsync(x.Where, context, ct) };
+                return x with { Policy = await PolicyAsync(x.Target, x.Alias, context, ct), Where = await SecureFilterAsync(x.Where, context, ct), Secured = true };
             default:
                 return f;
         }
@@ -314,10 +316,13 @@ public sealed class QueryEngine(
         var keys = rows.Select(r => r[keyIndex]).OfType<object>().Distinct().ToList();
         var result = new Dictionary<object, List<object?[]>>();
         if (keys.Count == 0) return result;
+        var budget = model.Limits.MaximumExpandedRows;
+        var read = 0;
         await using var command = Command(connection, tx, compiler.CompileExpansion(e, keys));
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
         while (await reader.ReadAsync(ct))
         {
+            if (++read > budget) throw QueryErrors.ResponseTooLarge(model.Limits.MaximumResponseBytes);
             var key = ValueReader.Read(reader, 0, e.ForeignKey)!;
             var values = new object?[e.Select.Length];
             for (var i = 0; i < values.Length; i++) values[i] = ValueReader.Read(reader, i + 1, e.Select[i].Column);
@@ -563,6 +568,7 @@ internal static class Keys
         Values(sb, q.Policy);
         foreach (var j in q.Joins) Values(sb, j.Policy);
         ExistsPolicies(sb, q.Where);
+        ExistsPolicies(sb, q.Having);
         foreach (var e in q.Expansions) { Values(sb, e.Policy); ExistsPolicies(sb, e.Where); }
         return Hash(sb.ToString());
     }

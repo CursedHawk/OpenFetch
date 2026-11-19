@@ -42,6 +42,12 @@ public sealed record DatasetDescriptor
 
     /// <summary>Internal physical identifiers; never serialized into schema, capabilities, OpenAPI or errors.</summary>
     public required PhysicalTable Table { get; init; }
+    /// <summary>TPT: base-type tables joined 1:1 on the key; columns with <see cref="PhysicalColumn.Table"/> = i live in entry i-1.</summary>
+    public ImmutableArray<InheritedTable> InheritedTables { get; init; } = [];
+    /// <summary>TPC: the dataset reads UNION ALL over these concrete tables (column names are aliased to the property names).</summary>
+    public ImmutableArray<UnionBranch> Union { get; init; } = [];
+    /// <summary>Reachable only as a collection of another dataset (EF owned collections); never queried directly.</summary>
+    public bool Internal { get; init; }
 
     public IEnumerable<ColumnDescriptor> ExposedColumns => AllColumns.Where(c => c.Exposed);
 
@@ -101,13 +107,20 @@ public sealed record RelationshipDescriptor
 
 public sealed record PhysicalTable(string? Schema, string Name);
 
+/// <summary>A table joined 1:1 to the dataset's main table on its key (TPT inheritance). Pairs are (main column, joined column).</summary>
+public sealed record InheritedTable(PhysicalTable Table, ImmutableArray<(string Main, string Joined)> Key);
+
+/// <summary>One branch of a TPC union: maps each dataset column (by its <see cref="PhysicalColumn.Name"/>) to this table's column.</summary>
+public sealed record UnionBranch(PhysicalTable Table, FrozenDictionary<string, string> Columns);
+
 /// <summary>Physical column with conversion between the public CLR value and the provider value (EF value converters, enums).</summary>
 public sealed record PhysicalColumn(
     string Name,
     string? StoreType,
     Type ProviderClrType,
     Func<object?, object?>? ToProvider,
-    Func<object?, object?>? FromProvider);
+    Func<object?, object?>? FromProvider,
+    int Table = 0);
 
 /// <summary>A trusted, server-built predicate template. <see cref="ContextType"/> is resolved from DI per request.</summary>
 public sealed record RowPolicy(Type ContextType, Func<object, FilterNode> Build);

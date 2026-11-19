@@ -30,13 +30,17 @@ public static partial class QueryModelBuilder
         foreach (var type in options.Datasets.Keys.Where(t => mappings.All(m => m.ClrType != t)))
             errors.Add($"Fluent configuration targets {type.Name}, which is not a mapped entity.");
 
+        // Owned collections become internal datasets when an opted-in collection navigation points at them.
+        var ownedTargets = mappings.SelectMany(m => m.Navigations.Where(n => n.IsCollection && NavigationOptedIn(m, n.Name, options)).Select(n => n.TargetClrType))
+            .Where(t => mappings.Any(x => x.ClrType == t && x.IsOwnedCollection)).ToHashSet();
+
         // Pass 1: datasets and columns.
         var built = new List<(EntityMapping Mapping, DatasetConfig? Config, DatasetDescriptor Dataset)>();
         foreach (var mapping in mappings)
         {
             var config = options.Datasets.GetValueOrDefault(mapping.ClrType);
             if (config is not null) errors.AddRange(config.Conflicts);
-            var dataset = BuildDataset(mapping, config, options, errors);
+            var dataset = BuildDataset(mapping, config, options, errors, ownedTargets.Contains(mapping.ClrType));
             if (dataset is null) continue;
             // EF global query filters often carry tenant isolation; direct SQL does not apply them (§8). Fail closed unless the
             // dataset has its own row policy or the gap is explicitly acknowledged.
@@ -63,6 +67,15 @@ public static partial class QueryModelBuilder
                 errors.Add($"Dataset '{dataset.PublicName}': '{name}' is both a column and a relationship.");
 
             var policies = ImmutableArray.CreateBuilder<RowPolicy>();
+            if (mapping.TypeFilter is var (discriminator, values))
+            {
+                // TPH: the type restriction is a trusted predicate like any row policy (applies in joins, any, expansions too).
+                FilterNode node = values.IsEmpty
+                    ? new LogicalFilter(LogicalOperator.Or, [])
+                    : new ComparisonFilter(new FieldRef(discriminator), QueryOperator.In, new ListOperand([.. values.Select(v => (QueryValue)new ClrValue(v))]));
+                if (dataset.FindProperty(discriminator) is null) errors.Add($"Dataset '{dataset.PublicName}': discriminator '{discriminator}' is not a supported column.");
+                else policies.Add(new RowPolicy(typeof(object), _ => node));
+            }
             foreach (var lambda in config?.RowPolicies ?? [])
             {
                 try
@@ -109,13 +122,23 @@ public static partial class QueryModelBuilder
     public static string ComponentName(string dataset) =>
         string.Concat(dataset.Split('_', StringSplitOptions.RemoveEmptyEntries).Select(p => char.ToUpperInvariant(p[0]) + p[1..]));
 
-    private static DatasetDescriptor? BuildDataset(EntityMapping m, DatasetConfig? cfg, OpenFetchOptions options, List<string> errors)
+    /// <summary>A navigation is opted in by [QueryRelationship] or fluent Relationship(...).Expose(), and not hidden.</summary>
+    private static bool NavigationOptedIn(EntityMapping m, string navigation, OpenFetchOptions options)
+    {
+        var prop = m.ClrType.GetProperty(navigation, BindingFlags.Public | BindingFlags.Instance);
+        var cfg = options.Datasets.GetValueOrDefault(m.ClrType)?.Members.GetValueOrDefault(navigation);
+        if (prop?.IsDefined(typeof(QueryHiddenAttribute)) == true || cfg?.Hidden == true) return false;
+        return prop?.GetCustomAttribute<QueryRelationshipAttribute>() is not null || cfg?.Exposed == true;
+    }
+
+    private static DatasetDescriptor? BuildDataset(EntityMapping m, DatasetConfig? cfg, OpenFetchOptions options, List<string> errors, bool ownedTarget = false)
     {
         var attr = m.ClrType.GetCustomAttribute<QueryDatasetAttribute>(inherit: false);
         var hidden = m.ClrType.IsDefined(typeof(QueryHiddenAttribute)) || cfg?.Hidden == true;
-        if (hidden || (attr is null && cfg?.Exposed != true)) return null;
+        var isInternal = m.IsOwnedCollection;
+        if (hidden || (isInternal ? !ownedTarget : attr is null && cfg?.Exposed != true)) return null;
 
-        var name = cfg?.Name ?? attr!.Name;
+        var name = cfg?.Name ?? attr?.Name ?? JsonNamingPolicy.CamelCase.ConvertName(m.ClrType.Name);
         var where = $"Dataset '{name}' ({m.ClrType.Name})";
         if (!PublicName().IsMatch(name)) errors.Add($"{where}: invalid public name.");
         if (m.UnsupportedReason is not null) errors.Add($"{where}: unsupported entity shape: {m.UnsupportedReason}.");
@@ -162,18 +185,40 @@ public static partial class QueryModelBuilder
             Relationships = FrozenDictionary<string, RelationshipDescriptor>.Empty,
             Key = key.Any(k => k is null) ? [] : [.. key.OfType<ColumnDescriptor>()],
             Table = m.Table,
+            InheritedTables = m.InheritedTables,
+            Union = m.Union,
+            Internal = isInternal,
         };
     }
 
     private static ColumnDescriptor? BuildColumn(EntityMapping m, PropertyMapping p, MemberConfig? cfg, OpenFetchOptions options, bool indexed, string where, List<string> errors)
     {
-        var prop = p.IsShadow ? null : m.ClrType.GetProperty(p.Name, BindingFlags.Public | BindingFlags.Instance);
+        // Owned (table-split) members have dotted names: every owner navigation on the way must be opted in and not hidden.
+        var segments = p.Name.Split('.');
+        var owner = m.ClrType;
+        var prefix = new List<string>();
+        var ownerExposed = true;
+        var ownerHidden = false;
+        for (var i = 0; i < segments.Length - 1; i++)
+        {
+            var nav = owner.GetProperty(segments[i], BindingFlags.Public | BindingFlags.Instance);
+            var navCfg = i == 0 ? options.Datasets.GetValueOrDefault(m.ClrType)?.Members.GetValueOrDefault(segments[i]) : null;
+            var navAttr = nav?.GetCustomAttribute<QueryRelationshipAttribute>();
+            ownerHidden |= nav?.IsDefined(typeof(QueryHiddenAttribute)) == true || navCfg?.Hidden == true;
+            ownerExposed &= navAttr is not null || navCfg?.Exposed == true;
+            prefix.Add(navCfg?.Name ?? navAttr?.Name ?? JsonNamingPolicy.CamelCase.ConvertName(segments[i]));
+            owner = nav?.PropertyType ?? p.DeclaringType ?? owner;
+        }
+        if (segments.Length > 1) cfg = null; // fluent Column(...) targets direct properties only
+
+        var prop = p.IsShadow ? null : owner.GetProperty(segments[^1], BindingFlags.Public | BindingFlags.Instance);
         var attr = prop?.GetCustomAttribute<QueryColumnAttribute>();
-        var hidden = prop?.IsDefined(typeof(QueryHiddenAttribute)) == true || cfg?.Hidden == true;
+        var hidden = ownerHidden || prop?.IsDefined(typeof(QueryHiddenAttribute)) == true || cfg?.Hidden == true;
         var convention = options.ExposeColumnsByConvention && prop is not null;
-        var exposed = !hidden && (attr is not null || cfg?.Exposed == true || convention);
+        var exposed = !hidden && ownerExposed && (attr is not null || cfg?.Exposed == true || convention);
         var kind = QueryOperators.KindOf(p.ClrType);
-        var name = cfg?.Name ?? attr?.Name ?? (exposed ? JsonNamingPolicy.CamelCase.ConvertName(p.Name) : p.Name);
+        var leaf = cfg?.Name ?? attr?.Name ?? (exposed ? JsonNamingPolicy.CamelCase.ConvertName(segments[^1]) : segments[^1]);
+        var name = exposed ? string.Join('.', [.. prefix, leaf]) : p.Name;
         var at = $"{where} column '{name}'";
 
         if (kind is null)
@@ -194,7 +239,7 @@ public static partial class QueryModelBuilder
             if (Layer(cfg?.Group, attr?.Group, false, false)) caps |= ColumnCapabilities.Group;
             if (Layer(cfg?.Aggregate, attr?.Aggregate, false, false)) caps |= ColumnCapabilities.Aggregate;
             if (Layer(cfg?.Cursor, attr?.Cursor, false, false)) caps |= ColumnCapabilities.Cursor;
-            if (!PublicName().IsMatch(name)) errors.Add($"{at}: invalid public name.");
+            if (!name.Split('.').All(PublicName().IsMatch)) errors.Add($"{at}: invalid public name.");
             if (caps.HasFlag(ColumnCapabilities.Cursor) && p.Nullable) errors.Add($"{at}: cursor columns must be non-nullable.");
             if (caps.HasFlag(ColumnCapabilities.Cursor) && !caps.HasFlag(ColumnCapabilities.Sort)) errors.Add($"{at}: cursor columns must be sortable.");
         }

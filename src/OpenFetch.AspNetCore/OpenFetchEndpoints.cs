@@ -23,7 +23,7 @@ public static class OpenFetchEndpoints
     {
         var engine = app.ServiceProvider.GetRequiredService<QueryEngine>(); // builds and validates the model now (§26)
         var group = app.MapGroup(prefix).WithTags("OpenFetch");
-        foreach (var dataset in engine.Model.Datasets.Values.OrderBy(d => d.PublicName, StringComparer.Ordinal))
+        foreach (var dataset in engine.Model.Datasets.Values.Where(d => !d.Internal).OrderBy(d => d.PublicName, StringComparer.Ordinal))
         {
             var name = dataset.PublicName;
             group.MapPost("/" + name, (Func<HttpContext, Task<IResult>>)(http => QueryAsync(http, name, null)))

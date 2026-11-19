@@ -1,0 +1,15 @@
+{
+  "groupBy": [
+    "status"
+  ],
+  "aggregates": [
+    {
+      "function": "count",
+      "alias": "n"
+    }
+  ],
+  "having": {
+    "type": "any",
+    "relationship": "x"
+  }
+}

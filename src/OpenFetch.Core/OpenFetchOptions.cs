@@ -24,6 +24,13 @@ public sealed class OpenFetchOptions
 
     internal Dictionary<Type, DatasetConfig> Datasets { get; } = [];
 
+    /// <summary>Applies configuration inline and returns the options (handy for tests and composition).</summary>
+    public OpenFetchOptions Configure(Action<OpenFetchOptions> configure)
+    {
+        configure(this);
+        return this;
+    }
+
     public DatasetBuilder<T> Dataset<T>() where T : class
     {
         if (!Datasets.TryGetValue(typeof(T), out var config)) Datasets[typeof(T)] = config = new DatasetConfig();

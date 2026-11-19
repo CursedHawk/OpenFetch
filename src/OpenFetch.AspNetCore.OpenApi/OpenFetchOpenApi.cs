@@ -125,13 +125,15 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
     {
         var segments = path.Split('.');
         var rels = new List<RelationshipDescriptor>();
-        foreach (var s in segments[..^1])
+        for (var i = 0; i < segments.Length; i++)
         {
-            var r = d.Relationships[s];
+            var rest = string.Join('.', segments[i..]);
+            if (d.Columns.TryGetValue(rest, out var column)) return (rels, column); // owned members are dotted columns
+            var r = d.Relationships[segments[i]];
             rels.Add(r);
             d = model.Datasets[r.TargetDataset];
         }
-        return (rels, d.Columns[segments[^1]]);
+        throw new InvalidOperationException($"Unresolvable projection path '{path}'.");
     }
 
     private void AddDataset(IDictionary<string, IOpenApiSchema> schemas, QueryModel model, DatasetDescriptor d)
@@ -232,7 +234,7 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
                 ["select"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Scalar(JsonSchemaType.String), MinItems = 1, Description = "Fields of the related dataset (no dotted paths)." },
                 ["where"] = TargetFilter(expandable),
                 ["orderBy"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Object(new() { ["field"] = Scalar(JsonSchemaType.String), ["direction"] = Enum(["asc", "desc"]) }, "field") },
-                ["first"] = new OpenApiSchema { Type = JsonSchemaType.Integer, Minimum = "1", Description = "Rows per parent (default: the related dataset's default page size)." },
+                ["first"] = new OpenApiSchema { Type = JsonSchemaType.Integer, Minimum = "1", Description = "Rows per parent (default: 10, at most the related dataset's maximum page size)." },
             }, "relationship", "select");
             query["expand"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = Ref(x + "Expand") };
         }
@@ -279,7 +281,7 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
 
         // §18.5: a superset row; every property optional because only selected fields are returned.
         var row = new Dictionary<string, IOpenApiSchema>();
-        foreach (var c in d.ExposedColumns.Where(c => c.Can(ColumnCapabilities.Select) && allowed(c.Policies))) row[c.PublicName] = Column(c);
+        foreach (var c in d.ExposedColumns.Where(c => c.Can(ColumnCapabilities.Select) && allowed(c.Policies))) Nest(row, c.PublicName.Split('.'), Column(c));
         foreach (var r in expandable)
             row[r.PublicName] = new OpenApiSchema
             {
@@ -328,20 +330,32 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
         ["meta"] = Ref("OpenFetchMeta"),
     }, "data", "page", "meta");
 
-    private static OpenApiSchema ProjectionRow(QueryModel model, DatasetDescriptor d, List<(string Path, string[] Segments)> fields, int depth)
+    /// <summary>Places a dotted owned column ("home.city") as a nested object property of the row schema.</summary>
+    private static void Nest(IDictionary<string, IOpenApiSchema> properties, string[] path, IOpenApiSchema leaf)
+    {
+        if (path.Length == 1) { properties[path[0]] = leaf; return; }
+        if (!properties.TryGetValue(path[0], out var existing) || existing is not OpenApiSchema { Properties: { } } nested)
+            properties[path[0]] = nested = new OpenApiSchema { Type = JsonSchemaType.Object, Properties = new Dictionary<string, IOpenApiSchema>(), Description = "Owned value object." };
+        Nest(nested.Properties!, path[1..], leaf);
+    }
+
+    private static OpenApiSchema ProjectionRow(QueryModel model, DatasetDescriptor d, List<(string Path, string[] Segments)> fields, int depth, string owned = "")
     {
         var properties = new Dictionary<string, IOpenApiSchema>();
         foreach (var group in fields.GroupBy(f => f.Segments[depth]))
         {
-            if (group.First().Segments.Length == depth + 1) { properties[group.Key] = Column(d.Columns[group.Key]); continue; }
-            var target = model.Datasets[d.Relationships[group.Key].TargetDataset];
-            var nested = ProjectionRow(model, target, [.. group], depth + 1);
-            nested.Type = JsonSchemaType.Object | JsonSchemaType.Null;
-            nested.Description = "Null when the related row is absent or not visible.";
-            properties[group.Key] = nested;
+            var full = owned + group.Key;
+            if (group.First().Segments.Length == depth + 1) { properties[group.Key] = Column(d.Columns[full]); continue; }
+            if (owned.Length == 0 && d.Relationships.TryGetValue(group.Key, out var rel) && !d.Columns.Keys.Any(c => c.StartsWith(full + ".", StringComparison.Ordinal)))
+            {
+                var nested = ProjectionRow(model, model.Datasets[rel.TargetDataset], [.. group], depth + 1);
+                nested.Type = JsonSchemaType.Object | JsonSchemaType.Null;
+                nested.Description = "Null when the related row is absent or not visible.";
+                properties[group.Key] = nested;
+            }
+            else properties[group.Key] = ProjectionRow(model, d, [.. group], depth + 1, full + "."); // owned value object, same row
         }
-        var row = Object(properties, [.. properties.Keys]);
-        return row;
+        return Object(properties, [.. properties.Keys]);
     }
 
     internal sealed record PathColumn(string Path, ColumnDescriptor Column);

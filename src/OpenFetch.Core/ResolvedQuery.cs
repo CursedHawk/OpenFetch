@@ -27,6 +27,8 @@ public sealed record ResolvedQuery
     public bool IsAggregate { get; init; }
     /// <summary>One-to-many expansions, executed as a second query per expansion in the same transaction.</summary>
     public ImmutableArray<ResolvedExpansion> Expansions { get; init; } = [];
+    /// <summary>Set only by the engine's security step; compilers refuse anything not secured (fail closed).</summary>
+    public bool Secured { get; init; }
 }
 
 /// <summary>
@@ -45,6 +47,7 @@ public sealed record ResolvedExpansion(
     int Limit)
 {
     public ResolvedFilter? Policy { get; init; }
+    public bool Secured { get; init; }
 }
 
 public sealed record ResolvedJoin(string Alias, string ParentAlias, string Path, RelationshipDescriptor Relationship, DatasetDescriptor Target)
@@ -72,6 +75,8 @@ public sealed record ResolvedNot(ResolvedFilter Operand) : ResolvedFilter;
 public sealed record ResolvedExists(string Alias, string ParentAlias, RelationshipDescriptor Relationship, DatasetDescriptor Target, ResolvedFilter? Where) : ResolvedFilter
 {
     public ResolvedFilter? Policy { get; init; }
+    /// <summary>True once the target's trusted policy has been resolved into <see cref="Policy"/>.</summary>
+    public bool Secured { get; init; }
 }
 public sealed record ResolvedComparison(ResolvedField Field, QueryOperator Operator, ResolvedOperand Right) : ResolvedFilter;
 
