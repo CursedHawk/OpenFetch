@@ -26,7 +26,7 @@ public static class QueryParser
     public static readonly QueryDocument Empty = new(Version, [], null, [], new PageNode(null, null, null), false);
 
     /// <summary>Parses a query document. <c>fixedSelect</c> is true for named projections: the server owns <c>select</c>, so the client must not send it.</summary>
-    public static QueryDocument Parse(ReadOnlyMemory<byte> utf8, QueryLimits limits, bool fixedSelect = false)
+    public static QueryDocument Parse(ReadOnlyMemory<byte> utf8, QueryLimits limits, bool fixedSelect = false, IReadOnlyCollection<string>? extensions = null)
     {
         if (utf8.Length > limits.MaximumDocumentBytes) throw QueryErrors.DocumentTooLarge(limits.MaximumDocumentBytes);
         // JsonDocument defers transcoding of names/strings; reject malformed UTF-8 up front so it can never surface later.
@@ -47,18 +47,18 @@ public static class QueryParser
         using (json)
         {
             // Escapes that decode to lone surrogates (e.g. "\uDD1E") are valid JSON but not valid strings; reading them throws.
-            try { return new Parser(limits, fixedSelect).Document(json.RootElement); }
+            try { return new Parser(limits, fixedSelect, extensions ?? []).Document(json.RootElement); }
             catch (InvalidOperationException) { throw QueryErrors.InvalidJson("The document contains an invalid string escape."); }
         }
     }
 
     public static QueryDocument Parse(string json, QueryLimits limits) => Parse(System.Text.Encoding.UTF8.GetBytes(json), limits);
 
-    private sealed class Parser(QueryLimits limits, bool fixedSelect)
+    private sealed class Parser(QueryLimits limits, bool fixedSelect, IReadOnlyCollection<string> extensions)
     {
         public QueryDocument Document(JsonElement root)
         {
-            Object(root, "", RootProperties);
+            Object(root, "", [.. RootProperties, .. extensions]);
             var version = Version;
             if (root.TryGetProperty("version", out var v))
             {
@@ -116,7 +116,8 @@ public static class QueryParser
                 expand = [.. Array(x, "/expand", "an array of expansions").Select((e, i) => Expand(e, $"/expand/{i}"))];
             }
 
-            return new QueryDocument(version, fields, where, order, page, distinct) { GroupBy = groupBy, Aggregates = aggregates, Having = having, Expand = expand };
+            var ext = root.EnumerateObject().Where(p => extensions.Contains(p.Name)).ToImmutableDictionary(p => p.Name, p => p.Value.GetRawText());
+            return new QueryDocument(version, fields, where, order, page, distinct) { GroupBy = groupBy, Aggregates = aggregates, Having = having, Expand = expand, Extensions = ext };
         }
 
         private ExpandNode Expand(JsonElement e, string path)

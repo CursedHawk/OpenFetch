@@ -256,6 +256,8 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
         schemas[x + "Page"] = Object(page);
 
         if (d.Capabilities.HasFlag(DatasetCapabilities.Distinct)) query["distinct"] = Scalar(JsonSchemaType.Boolean);
+        foreach (var extension in model.Features.Extensions.Order(StringComparer.Ordinal))
+            query[extension] = new OpenApiSchema { Description = "Registered extension; passed to the application, never interpreted by OpenFetch." };
 
         var aggregation = d.Capabilities.HasFlag(DatasetCapabilities.Aggregation);
         if (aggregation)

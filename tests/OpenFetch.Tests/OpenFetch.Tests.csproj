@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\OpenFetch.AspNetCore.OpenApi\OpenFetch.AspNetCore.OpenApi.csproj" />
     <ProjectReference Include="..\..\src\OpenFetch.Compiler.PostgreSql\OpenFetch.Compiler.PostgreSql.csproj" />
     <ProjectReference Include="..\..\src\OpenFetch.Compiler.SqlServer\OpenFetch.Compiler.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\OpenFetch.Certification\OpenFetch.Certification.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\samples\*.sql" LinkBase="samples" CopyToOutputDirectory="PreserveNewest" />

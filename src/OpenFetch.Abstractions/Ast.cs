@@ -19,6 +19,9 @@ public sealed record QueryDocument(
 
     public bool IsAggregate => !GroupBy.IsEmpty || !Aggregates.IsEmpty;
 
+    /// <summary>Registered extension properties as raw JSON (never interpreted by the engine).</summary>
+    public ImmutableDictionary<string, string> Extensions { get; init; } = ImmutableDictionary<string, string>.Empty;
+
     /// <summary>Collection relationships returned as nested arrays per row.</summary>
     public ImmutableArray<ExpandNode> Expand { get; init; } = [];
 }

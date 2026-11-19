@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>openfetch-certify</ToolCommandName>
+    <PackageId>OpenFetch.Certification.Tool</PackageId>
+    <Description>Command-line OpenFetch certification: runs the compatibility and security suite against a server hosting the reference sample.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenFetch.Certification\OpenFetch.Certification.csproj" />
+  </ItemGroup>
+</Project>

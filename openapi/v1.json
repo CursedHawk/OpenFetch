@@ -1870,7 +1870,7 @@
       "name": "OpenFetch"
     }
   ],
-  "x-openfetch-model-version": "f3e3d424250ddfe4",
+  "x-openfetch-model-version": "24761926472b19bc",
   "x-openfetch-provider": {
     "compilerVersion": "1",
     "name": "postgresql"

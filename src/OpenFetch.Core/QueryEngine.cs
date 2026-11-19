@@ -19,7 +19,11 @@ public interface ICursorProtector
     byte[] Unprotect(string token);
 }
 
-public sealed record PreparedQuery(ResolvedQuery Query, QueryPlan Plan, string ShapeHash, string Scope, int Complexity);
+public sealed record PreparedQuery(ResolvedQuery Query, QueryPlan Plan, string ShapeHash, string Scope, int Complexity)
+{
+    /// <summary>Registered extension properties sent by the client (raw JSON), for application use.</summary>
+    public IReadOnlyDictionary<string, string> Extensions { get; init; } = new Dictionary<string, string>();
+}
 
 /// <summary>
 /// The §5 pipeline: parse -> resolve/validate -> authorize -> row-policy injection -> complexity -> shape key -> compile -> execute.
@@ -55,7 +59,7 @@ public sealed class QueryEngine(
         if (projection is not null && !root.Projections.TryGetValue(projection, out fixedFields))
             throw QueryErrors.UnknownDataset(dataset + "/" + projection);
 
-        var doc = QueryParser.Parse(body, model.Limits, fixedSelect: projection is not null);
+        var doc = QueryParser.Parse(body, model.Limits, fixedSelect: projection is not null, model.Features.Extensions);
         if (projection is not null) doc = WithProjection(doc, fixedFields);
         var allowed = await AllowedPoliciesAsync(context, ReachablePolicies(root), ct);
         ResolvedQuery resolved;
@@ -77,7 +81,7 @@ public sealed class QueryEngine(
         if (doc.Page.After is { } after) secured = secured with { After = DecodeCursor(after, secured, shape, scope) };
 
         var plan = compiler.Compile(secured);
-        return new PreparedQuery(secured, plan, shape, scope, complexity);
+        return new PreparedQuery(secured, plan, shape, scope, complexity) { Extensions = doc.Extensions };
     }
 
     internal static QueryDocument WithProjection(QueryDocument doc, ImmutableArray<string> fields) =>

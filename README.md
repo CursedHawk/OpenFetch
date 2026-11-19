@@ -33,6 +33,7 @@ POST /query/orders
 | `OpenFetch.EntityFrameworkCore` | Reads physical metadata from a `DbContext` model. |
 | `OpenFetch.AspNetCore` | `AddOpenFetch<TDbContext>`, endpoints, Problem Details, Data Protection cursors, rate limiting. |
 | `OpenFetch.AspNetCore.OpenApi` | OpenAPI 3.1 transformers. |
+| `OpenFetch.Certification` / `OpenFetch.Certification.Tool` | Black-box compatibility and security certification suite, available as a library and as the `openfetch-certify` tool. |
 
 Packages are published to this project's GitLab NuGet registry (see [CI](#ci-and-packages)).
 
@@ -186,6 +187,13 @@ builder.Services.AddOpenApi("finance", o => o.AddOpenFetch(profile: ["Orders.Fin
 ```
 
 The committed contract [openapi/v1.json](openapi/v1.json) is checked by the test suite against the generated document and a breaking-change detector. CI also generates and compiles a Kiota C# client and an `openapi-typescript` client ([eng/sdk-smoke](eng/sdk-smoke)).
+
+## Specification, providers and certification
+
+- [docs/language-1.0.md](docs/language-1.0.md): the stable query language 1.0, including versioning and extension rules.
+- [docs/provider-conformance.md](docs/provider-conformance.md): normative requirements for database providers.
+- [docs/certification.md](docs/certification.md): the black-box compatibility and security suite (`OpenFetch.Certification`, and the `openfetch-certify` tool). Implementations in any language can run it.
+- [docs/cursor-profile-v1.md](docs/cursor-profile-v1.md): the portable encrypted cursor format.
 
 ## TypeScript query builder
 

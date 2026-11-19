@@ -14,6 +14,11 @@ public sealed record QueryModel(FrozenDictionary<string, DatasetDescriptor> Data
 public sealed record QueryFeatures
 {
     public bool FieldComparison { get; init; }
+    /// <summary>
+    /// Registered extension properties (spec §11): <c>x-&lt;vendor&gt;-&lt;name&gt;</c> at the document root. They are accepted and
+    /// handed to the application untouched; the engine never interprets them. Unregistered extensions are rejected.
+    /// </summary>
+    public ImmutableArray<string> Extensions { get; init; } = [];
 }
 
 public sealed record DatasetDescriptor

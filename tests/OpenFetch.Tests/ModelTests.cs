@@ -1,4 +1,5 @@
 using OpenFetch.Tests.Domain;
+using System.Collections.Immutable;
 
 namespace OpenFetch.Tests;
 
@@ -149,6 +150,19 @@ public class ModelTests
         var ex = Assert.Throws<OpenFetchConfigurationException>(() =>
             TestModel.Build(o => o.Dataset<Order>().ApplyRowPolicy(x => x.Number.Length > 3)));
         Assert.Contains(ex.Errors, e => e.Contains("untranslatable"));
+    }
+
+    [Fact]
+    public async Task Registered_extensions_pass_through_and_others_are_rejected()
+    {
+        var model = TestModel.Build(o => { TestModel.Configure(o); o.Features = o.Features with { Extensions = ["x-acme-trace"] }; });
+        var engine = TestEngine.Create(model);
+        var q = await engine.PrepareAsync("orders", """{"select":["id"],"x-acme-trace":{"id":"t-1"}}""", TestEngine.Context(SeedData.TenantA));
+        Assert.Equal("""{"id":"t-1"}""", q.Extensions["x-acme-trace"]);
+        var ex = await Assert.ThrowsAsync<OpenFetchException>(async () => await engine.PrepareAsync("orders", """{"select":["id"],"x-other-thing":1}""", TestEngine.Context(SeedData.TenantA)));
+        Assert.Equal(("invalid_query", "/x-other-thing"), (ex.Code, ex.Path));
+        Assert.NotEqual(TestModel.Default.Version, model.Version);
+        Assert.Throws<OpenFetchConfigurationException>(() => TestModel.Build(o => o.Features = o.Features with { Extensions = ["trace"] }));
     }
 
     public sealed class AllowedStatuses

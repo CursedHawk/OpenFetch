@@ -20,11 +20,16 @@ public static partial class QueryModelBuilder
 
     public static bool IsPublicName(string name) => PublicName().IsMatch(name);
 
+    [GeneratedRegex("^x-[a-z0-9]+(-[a-z0-9]+)+$")]
+    private static partial Regex ExtensionName();
+
     public static QueryModel Build(IEnumerable<EntityMapping> entities, OpenFetchOptions options, ICollection<string>? warnings = null)
     {
         var errors = new List<string>();
         var limits = options.Limits;
         ValidateLimits(limits, errors);
+        foreach (var x in options.Features.Extensions.Where(x => !ExtensionName().IsMatch(x)))
+            errors.Add($"Extension '{x}' must match x-<vendor>-<name> (lowercase letters, digits, '-').");
 
         var mappings = entities.ToList();
         foreach (var type in options.Datasets.Keys.Where(t => mappings.All(m => m.ClrType != t)))
@@ -397,7 +402,7 @@ internal static class ModelHash
         {
             w.WriteStartObject();
             w.WriteString("limits", limits.ToString());
-            w.WriteString("features", features.ToString());
+            w.WriteString("features", $"{features.FieldComparison}/{string.Join(',', features.Extensions.Order(StringComparer.Ordinal))}");
             w.WriteStartArray("datasets");
             foreach (var d in datasets.OrderBy(d => d.PublicName, StringComparer.Ordinal))
             {

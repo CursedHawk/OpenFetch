@@ -17,6 +17,7 @@ using Microsoft.Extensions.Options;
 using OpenFetch.AspNetCore;
 using OpenFetch.AspNetCore.OpenApi;
 using OpenFetch.Compiler.PostgreSql;
+using OpenFetch.Compiler.SqlServer;
 using OpenFetch.Tests.Domain;
 
 namespace OpenFetch.Tests;
@@ -25,12 +26,12 @@ namespace OpenFetch.Tests;
 public static class TestHost
 {
     public static async Task<WebApplication> StartAsync(string connectionString, Action<OpenFetchOptions>? configure = null,
-        Action<WebApplicationBuilder>? services = null, Action<WebApplication>? map = null)
+        Action<WebApplicationBuilder>? services = null, Action<WebApplication>? map = null, bool sqlServer = false, bool configureModel = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
-        builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(connectionString));
+        builder.Services.AddDbContext<AppDbContext>(o => { if (sqlServer) o.UseSqlServer(connectionString); else o.UseNpgsql(connectionString); });
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, HeaderAuthHandler>("Test", null);
         builder.Services.AddAuthorization(o =>
         {
@@ -44,9 +45,10 @@ public static class TestHost
         });
         builder.Services.AddOpenFetch<AppDbContext>(o =>
         {
-            o.UsePostgreSql();
+            if (sqlServer) o.UseSqlServer(); else o.UsePostgreSql();
             o.Security.RequireAuthenticatedUser().UseTenantClaim("tenant").UseDatabaseRowLevelSecurity();
-            TestModel.Configure(o);
+            if (configureModel) TestModel.Configure(o);
+            else o.Dataset<Order>().Projection("summary", "id", "number", "status", "customer.name"); // same contract, no row policies
             configure?.Invoke(o);
         });
         builder.Services.AddOpenApi(o => o.AddOpenFetch());

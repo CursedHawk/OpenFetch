@@ -51,6 +51,7 @@ public static class MetadataDocuments
             w.WriteString("compilerVersion", compiler.CompilerVersion);
             w.WriteEndObject();
             w.WriteString("errorFormat", "application/problem+json");
+            w.WriteStartArray("extensions"); foreach (var x in model.Features.Extensions.Order(StringComparer.Ordinal)) w.WriteStringValue(x); w.WriteEndArray();
         });
     }
 

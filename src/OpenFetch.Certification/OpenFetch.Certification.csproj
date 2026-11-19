@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenFetch compatibility and security certification suite: runs the conformance corpus and tenant-isolation, cursor and disclosure checks over HTTP against any OpenFetch server hosting the reference sample.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\conformance\valid\*.json" LogicalName="valid/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\conformance\invalid\*.json" LogicalName="invalid/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\conformance\expected-results\*.json" LogicalName="expected-results/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
