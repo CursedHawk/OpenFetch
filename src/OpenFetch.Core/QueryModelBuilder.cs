@@ -44,7 +44,8 @@ public static partial class QueryModelBuilder
             if (dataset is null) continue;
             // EF global query filters often carry tenant isolation; direct SQL does not apply them (§8). Fail closed unless the
             // dataset has its own row policy or the gap is explicitly acknowledged.
-            if (mapping.HasQueryFilter && config?.RowPolicies.Count is null or 0 && config?.QueryFilterAcknowledged != true)
+            var lineage = Lineage(mapping.ClrType, options).ToList(); // own config first, then base types (TPH/TPT/TPC)
+            if (mapping.HasQueryFilter && lineage.Sum(c => c.RowPolicies.Count) == 0 && !lineage.Any(c => c.QueryFilterAcknowledged))
                 errors.Add($"Dataset '{dataset.PublicName}' has an EF global query filter that OpenFetch SQL does not apply. " +
                            "Add ApplyRowPolicy(...) or call AcknowledgeEfQueryFilterNotApplied().");
             else if (mapping.HasQueryFilter)
@@ -76,7 +77,8 @@ public static partial class QueryModelBuilder
                 if (dataset.FindProperty(discriminator) is null) errors.Add($"Dataset '{dataset.PublicName}': discriminator '{discriminator}' is not a supported column.");
                 else policies.Add(new RowPolicy(typeof(object), _ => node));
             }
-            foreach (var lambda in config?.RowPolicies ?? [])
+            // Row policies configured on base types also bind every derived dataset (deny wins across the hierarchy).
+            foreach (var lambda in Lineage(mapping.ClrType, options).SelectMany(c => c.RowPolicies))
             {
                 try
                 {
@@ -104,6 +106,14 @@ public static partial class QueryModelBuilder
             errors.Add($"{string.Join(", ", dup.Select(d => $"'{d.Owner}'"))} collide on OpenAPI component name '{dup.Key}'.");
         if (errors.Count > 0) throw new OpenFetchConfigurationException(errors);
 
+        // Internal (owned-collection) datasets are guarded by every owner dataset and owning relationship that reaches them.
+        for (var i = 0; i < final.Count; i++)
+            if (final[i].Internal)
+            {
+                var name = final[i].PublicName;
+                var inherited = final.SelectMany(o => o.Relationships.Values.Where(r => r.TargetDataset == name).SelectMany(r => o.Policies.Concat(r.Policies)));
+                final[i] = final[i] with { Policies = [.. final[i].Policies.Concat(inherited).Distinct().Order(StringComparer.Ordinal)] };
+            }
         var datasets = final.ToFrozenDictionary(d => d.PublicName, StringComparer.Ordinal);
         var model = new QueryModel(datasets, limits, options.Features, ModelHash.Compute(datasets.Values, limits, options.Features));
 
@@ -121,6 +131,13 @@ public static partial class QueryModelBuilder
     /// <summary>OpenAPI component prefix for a dataset (§18.3): PascalCase, underscores dropped (orders -> Orders).</summary>
     public static string ComponentName(string dataset) =>
         string.Concat(dataset.Split('_', StringSplitOptions.RemoveEmptyEntries).Select(p => char.ToUpperInvariant(p[0]) + p[1..]));
+
+    /// <summary>Fluent configs of a CLR type and all its base types, most derived first.</summary>
+    private static IEnumerable<DatasetConfig> Lineage(Type type, OpenFetchOptions options)
+    {
+        for (var t = type; t is not null && t != typeof(object); t = t.BaseType)
+            if (options.Datasets.TryGetValue(t, out var c)) yield return c;
+    }
 
     /// <summary>A navigation is opted in by [QueryRelationship] or fluent Relationship(...).Expose(), and not hidden.</summary>
     private static bool NavigationOptedIn(EntityMapping m, string navigation, OpenFetchOptions options)
@@ -177,7 +194,11 @@ public static partial class QueryModelBuilder
             MaximumPageSize = maxPage,
             MaximumRelationshipDepth = Math.Min(Pick(cfg?.MaximumRelationshipDepth, attr?.MaximumRelationshipDepth ?? 0, limits.MaximumRelationshipDepth), limits.MaximumRelationshipDepth),
             Capabilities = capabilities,
-            Policies = Policies(attr?.AuthorizationPolicy, cfg?.Policies),
+            // Dataset policies of base types (attribute or fluent) also guard derived datasets.
+            Policies = [.. Policies(attr?.AuthorizationPolicy, cfg?.Policies)
+                .Concat(BaseTypes(m.ClrType).SelectMany(t => Policies(t.GetCustomAttribute<QueryDatasetAttribute>(inherit: false)?.AuthorizationPolicy,
+                    options.Datasets.GetValueOrDefault(t)?.Policies)))
+                .Distinct().Order(StringComparer.Ordinal)],
             Deprecated = cfg?.Deprecated == true || attr?.Deprecated == true,
             DeprecationMessage = cfg?.DeprecationMessage ?? attr?.DeprecationMessage,
             Columns = all.Where(c => c.Exposed).GroupBy(c => c.PublicName).ToFrozenDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal),
@@ -199,6 +220,9 @@ public static partial class QueryModelBuilder
         var prefix = new List<string>();
         var ownerExposed = true;
         var ownerHidden = false;
+        var ownerPolicies = new List<string>();
+        var ownerMask = ColumnCapabilities.Select | ColumnCapabilities.Filter | ColumnCapabilities.Sort | ColumnCapabilities.Group
+                        | ColumnCapabilities.Aggregate | ColumnCapabilities.Cursor;
         for (var i = 0; i < segments.Length - 1; i++)
         {
             var nav = owner.GetProperty(segments[i], BindingFlags.Public | BindingFlags.Instance);
@@ -207,6 +231,11 @@ public static partial class QueryModelBuilder
             ownerHidden |= nav?.IsDefined(typeof(QueryHiddenAttribute)) == true || navCfg?.Hidden == true;
             ownerExposed &= navAttr is not null || navCfg?.Exposed == true;
             prefix.Add(navCfg?.Name ?? navAttr?.Name ?? JsonNamingPolicy.CamelCase.ConvertName(segments[i]));
+            // The owner navigation gates its owned columns like a relationship: its policies apply and its flags mask capabilities.
+            ownerPolicies.AddRange(Policies(navAttr?.AuthorizationPolicy, navCfg?.Policies));
+            if (!(navCfg?.Select ?? navAttr?.Select ?? true)) ownerMask &= ~(ColumnCapabilities.Select | ColumnCapabilities.Group | ColumnCapabilities.Aggregate);
+            if (!(navCfg?.Filter ?? navAttr?.Filter ?? false)) ownerMask &= ~ColumnCapabilities.Filter;
+            if (!(navCfg?.Sort ?? navAttr?.Sort ?? false)) ownerMask &= ~(ColumnCapabilities.Sort | ColumnCapabilities.Cursor);
             owner = nav?.PropertyType ?? p.DeclaringType ?? owner;
         }
         if (segments.Length > 1) cfg = null; // fluent Column(...) targets direct properties only
@@ -239,6 +268,7 @@ public static partial class QueryModelBuilder
             if (Layer(cfg?.Group, attr?.Group, false, false)) caps |= ColumnCapabilities.Group;
             if (Layer(cfg?.Aggregate, attr?.Aggregate, false, false)) caps |= ColumnCapabilities.Aggregate;
             if (Layer(cfg?.Cursor, attr?.Cursor, false, false)) caps |= ColumnCapabilities.Cursor;
+            caps &= ownerMask;
             if (!name.Split('.').All(PublicName().IsMatch)) errors.Add($"{at}: invalid public name.");
             if (caps.HasFlag(ColumnCapabilities.Cursor) && p.Nullable) errors.Add($"{at}: cursor columns must be non-nullable.");
             if (caps.HasFlag(ColumnCapabilities.Cursor) && !caps.HasFlag(ColumnCapabilities.Sort)) errors.Add($"{at}: cursor columns must be sortable.");
@@ -266,7 +296,7 @@ public static partial class QueryModelBuilder
             Exposed = exposed,
             Capabilities = caps,
             Operators = operators,
-            Policies = exposed ? Policies(attr?.AuthorizationPolicy, cfg?.Policies) : [],
+            Policies = exposed ? [.. Policies(attr?.AuthorizationPolicy, cfg?.Policies).Concat(ownerPolicies).Distinct().Order(StringComparer.Ordinal)] : [],
             Description = cfg?.Description ?? attr?.Description,
             Sensitivity = attr?.Sensitivity ?? Sensitivity.Public,
             Deprecated = cfg?.Deprecated == true || attr?.Deprecated == true,
@@ -339,6 +369,11 @@ public static partial class QueryModelBuilder
     }
 
     /// <summary>Policies accumulate: attribute and every fluent call are all required.</summary>
+    private static IEnumerable<Type> BaseTypes(Type type)
+    {
+        for (var t = type.BaseType; t is not null && t != typeof(object); t = t.BaseType) yield return t;
+    }
+
     private static ImmutableArray<string> Policies(string? attribute, List<string>? fluent) =>
         [.. new[] { attribute }.Concat(fluent ?? []).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
 

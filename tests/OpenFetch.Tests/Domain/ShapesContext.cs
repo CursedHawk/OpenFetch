@@ -46,7 +46,7 @@ public class Person
 {
     [QueryColumn("id", Filter = true, Sort = true)] public int Id { get; set; }
     [QueryColumn("name", Filter = true, Sort = true)] public string Name { get; set; } = "";
-    [QueryRelationship("home")] public Address Home { get; set; } = new();
+    [QueryRelationship("home", Filter = true, Sort = true)] public Address Home { get; set; } = new();
     [QueryRelationship("phones", Filter = true)] public List<Phone> Phones { get; set; } = [];
 }
 

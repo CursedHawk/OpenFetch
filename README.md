@@ -121,7 +121,7 @@ The model is built and validated once, when the endpoints are mapped. If anythin
    - **PostgreSQL:** the transaction is `READ ONLY`. Values are set with `set_config(…, true)`, which is transaction-local and therefore cannot leak through the connection pool. See [samples/postgresql-rls.sql](samples/postgresql-rls.sql) for the policies and a non-`BYPASSRLS` application role.
    - **SQL Server:** values are set with `sp_set_session_context`, and SqlClient resets them when a pooled connection is reused. See [samples/sqlserver-rls.sql](samples/sqlserver-rls.sql) for a security policy with a `SESSION_CONTEXT` predicate.
 5. **Identifiers vs. values.** Identifiers come only from trusted metadata and are always quoted. Every client value is a parameter: `IN` becomes `= ANY(@array)`, and `LIKE` wildcards are escaped.
-6. **Cursors.** Cursors are protected with ASP.NET Core Data Protection. Each one is bound to the model version, the query shape, the caller/tenant/policy scope, and an expiry.
+6. **Cursors.** Each cursor is bound to the model version, the query shape, the caller/tenant/policy scope, and an expiry. By default cursors are protected with ASP.NET Core Data Protection. `AddOpenFetchSignedCursors(kid, keys)` switches to the portable HMAC-signed [cursor profile v1](docs/cursor-profile-v1.md), which supports key rotation.
 7. **Limits.** Structural limits, complexity scoring ([docs/complexity-v1.md](docs/complexity-v1.md)), a command timeout, request cancellation, a response-size cap, and an optional per-principal concurrency limit.
 8. **Logging.** Logs never contain condition values. SQL text, with parameter names only, is logged only when `options.DiagnosticMode = true`.
 

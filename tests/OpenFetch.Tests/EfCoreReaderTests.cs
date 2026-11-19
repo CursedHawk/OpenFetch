@@ -50,6 +50,23 @@ public class EfCoreReaderTests
     }
 
     [Fact]
+    public void Base_type_policies_and_owner_gates_flow_to_derived_and_owned_members()
+    {
+        var mappings = EfCoreModelReader.Read(new Domain.ShapesContext(new DbContextOptionsBuilder<Domain.ShapesContext>().UseNpgsql("Host=unused").Options).Model).ToList();
+        var options = new OpenFetchOptions();
+        options.Dataset<Domain.Animal>().RequirePolicy("Animals.Read").ApplyRowPolicy(a => a.Name != "hidden");
+        options.Dataset<Domain.Person>().RequirePolicy("People.Read").Relationship(p => p.Home).RequirePolicy("Pii");
+        var model = QueryModelBuilder.Build(mappings, options);
+
+        var dogs = model.Datasets["dogs"];
+        Assert.Contains("Animals.Read", dogs.Policies);
+        Assert.Equal(2, dogs.RowPolicies.Length); // inherited Animal policy + TPH type filter
+        Assert.Contains("Pii", model.Datasets["people"].Columns["home.city"].Policies);
+        Assert.False(model.Datasets["people"].Columns["home.zip"].Can(ColumnCapabilities.Filter)); // owned column without Filter stays unfilterable
+        Assert.Contains("People.Read", model.Datasets["phone"].Policies); // internal dataset inherits its owner's policy
+    }
+
+    [Fact]
     public void Query_filter_warns_and_unattributed_entities_are_invisible()
     {
         var mappings = Read().Where(m => m.ClrType == typeof(Person) || m.ClrType == typeof(Plain) || m.ClrType == typeof(Address)).ToList();
