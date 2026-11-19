@@ -238,7 +238,9 @@ public class HttpTests(PostgresFixture pg)
         var withSelect = await Post("/query/orders/summary", """{"select":["id"]}""");
         Assert.Equal((HttpStatusCode.BadRequest, "/select"), (withSelect.StatusCode, (string)(await Json(withSelect))["path"]!));
         Assert.Equal("unknown_dataset", (string)(await Json(await Post("/query/orders/nope", "{}")))["code"]!);
-        Assert.Equal("unknown_field", (string)(await Json(await Post("/query/orders/financial", "{}")))["code"]!); // lacks finance role
+        var denied = await Json(await Post("/query/orders/financial", "{}")); // lacks finance role: same as a missing projection
+        Assert.Equal("unknown_dataset", (string)denied["code"]!);
+        Assert.DoesNotContain("total", denied.ToJsonString());
         Assert.Equal(HttpStatusCode.OK, (await app.Client(tenant: SeedData.TenantA, roles: "finance")
             .PostAsync("/query/orders/financial", new StringContent("{}", System.Text.Encoding.UTF8, "application/json"), Ct)).StatusCode);
     }

@@ -58,7 +58,13 @@ public sealed class QueryEngine(
         var doc = QueryParser.Parse(body, model.Limits, fixedSelect: projection is not null);
         if (projection is not null) doc = WithProjection(doc, fixedFields);
         var allowed = await AllowedPoliciesAsync(context, ReachablePolicies(root), ct);
-        var resolved = new QueryResolver(model, root, p => p.All(allowed.Contains)).Resolve(doc);
+        ResolvedQuery resolved;
+        try { resolved = new QueryResolver(model, root, p => p.All(allowed.Contains)).Resolve(doc); }
+        catch (OpenFetchException ex) when (projection is not null && ex.Path?.StartsWith("/select", StringComparison.Ordinal) == true)
+        {
+            // A projection the caller cannot fully use is indistinguishable from a missing one; server field names are never echoed.
+            throw QueryErrors.UnknownDataset(dataset + "/" + projection);
+        }
         var secured = await SecureAsync(resolved, context, ct);
 
         var complexity = Complexity.Score(secured);
@@ -194,8 +200,10 @@ public sealed class QueryEngine(
             await using var tx = await connection.BeginTransactionAsync(ct);
 
             var settings = security.DatabaseRowLevelSecurity ? security.DatabaseSessionValues!(context).ToList() : [];
-            await using (var setup = Command(connection, tx, compiler.CompileSessionSetup(settings)))
-                await setup.ExecuteNonQueryAsync(ct);
+            var setupCommand = compiler.CompileSessionSetup(settings);
+            if (setupCommand.CommandText.Length > 0)
+                await using (var setup = Command(connection, tx, setupCommand))
+                    await setup.ExecuteNonQueryAsync(ct);
 
             int rows;
             await using (var command = Command(connection, tx, prepared.Plan.Command))

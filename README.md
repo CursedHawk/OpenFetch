@@ -1,6 +1,6 @@
 # OpenFetch
 
-OpenFetch is a read-only relational query protocol expressed as JSON, for ASP.NET Core applications that want to expose selected parts of an EF Core model safely. This repository holds the .NET 10 reference implementation of [OPENFETCH.md](OPENFETCH.md), release scope v0.1, using PostgreSQL.
+OpenFetch is a read-only relational query protocol expressed as JSON, for ASP.NET Core applications that want to expose selected parts of an EF Core model safely. This repository holds the .NET 10 reference implementation of [OPENFETCH.md](OPENFETCH.md), for PostgreSQL and SQL Server.
 
 Clients send a logical query: datasets, fields, filters, ordering and paging. They never send table names, column names, SQL, joins or hints. Nothing is exposed until you opt it in.
 
@@ -28,7 +28,8 @@ POST /query/orders
 |---|---|
 | `OpenFetch.Abstractions` | Attributes, immutable `QueryModel` descriptors, canonical AST, operators, errors. No dependencies. |
 | `OpenFetch.Core` | Parser, resolver/validator, security injection, complexity, cursors, ADO.NET execution, capability/schema documents. No EF Core, ASP.NET Core or provider dependency (enforced by a test). |
-| `OpenFetch.Compiler.PostgreSql` | Parameterized PostgreSQL SQL and RLS session setup. |
+| `OpenFetch.Compiler.PostgreSql` | PostgreSQL dialect (`options.UsePostgreSql()`): `= ANY(@array)` IN lists, transaction-local `set_config` RLS. |
+| `OpenFetch.Compiler.SqlServer` | SQL Server dialect (`options.UseSqlServer()`): OPENJSON IN lists, OFFSET/FETCH, `sp_set_session_context` RLS. |
 | `OpenFetch.EntityFrameworkCore` | Reads physical metadata from a `DbContext` model. |
 | `OpenFetch.AspNetCore` | `AddOpenFetch<TDbContext>`, endpoints, Problem Details, Data Protection cursors, rate limiting. |
 | `OpenFetch.AspNetCore.OpenApi` | OpenAPI 3.1 transformers. |
@@ -106,7 +107,9 @@ The model is built and validated once, when the endpoints are mapped. If anythin
 1. **Authentication and tenant.** Authentication is required when configured (401). The tenant comes only from the configured claim; a caller without one gets 403.
 2. **Authorization.** Dataset, column and relationship authorization use ASP.NET Core policies, evaluated once per request.
 3. **Row policies.** `ApplyRowPolicy` expressions are translated at startup into trusted filters. They may reference hidden columns, and their values are always SQL parameters. The root policy is AND-ed outside the client's filter, and joined-dataset policies go into the `ON` clause, so clients cannot remove, negate, or escape them. Add custom predicates with `IRowPolicyProvider`.
-4. **Database RLS (defense in depth).** Each query runs in one `READ ONLY` transaction on one connection. Session values are set first with `set_config(…, true)`, which is transaction-local and therefore cannot leak through the connection pool; a test alternates tenants on a `Max Pool Size=1` pool. See [samples/postgresql-rls.sql](samples/postgresql-rls.sql) for the policies and a non-`BYPASSRLS` application role.
+4. **Database RLS (defense in depth).** Each query runs in one transaction on one connection, and the session values are set first. Tests alternate tenants on a `Max Pool Size=1` pool for both providers.
+   - **PostgreSQL:** the transaction is `READ ONLY`. Values are set with `set_config(…, true)`, which is transaction-local and therefore cannot leak through the connection pool. See [samples/postgresql-rls.sql](samples/postgresql-rls.sql) for the policies and a non-`BYPASSRLS` application role.
+   - **SQL Server:** values are set with `sp_set_session_context`, and SqlClient resets them when a pooled connection is reused. See [samples/sqlserver-rls.sql](samples/sqlserver-rls.sql) for a security policy with a `SESSION_CONTEXT` predicate.
 5. **Identifiers vs. values.** Identifiers come only from trusted metadata and are always quoted. Every client value is a parameter: `IN` becomes `= ANY(@array)`, and `LIKE` wildcards are escaped.
 6. **Cursors.** Cursors are protected with ASP.NET Core Data Protection. Each one is bound to the model version, the query shape, the caller/tenant/policy scope, and an expiry.
 7. **Limits.** Structural limits, complexity scoring ([docs/complexity-v1.md](docs/complexity-v1.md)), a command timeout, request cancellation, a response-size cap, and an optional per-principal concurrency limit.
@@ -125,7 +128,7 @@ OpenFetch compiles SQL directly, so **EF global query filters (`HasQueryFilter`)
 |---|---|
 | Top level | `version` (`"1.0"`), `select` (required), `where`, `orderBy`, `page`, `distinct`. Unknown or duplicate properties are rejected. |
 | Filters | Tagged union: `comparison` / `logical` (`and`, `or`) / `not` |
-| Operators | `eq ne gt gte lt lte in notIn between notBetween contains startsWith endsWith`, further limited per column and type |
+| Operators | `eq ne gt gte lt lte in notIn between notBetween contains startsWith endsWith`, further limited per column and type. String comparisons follow the column collation, which is case-sensitive by default on PostgreSQL and case-insensitive by default on SQL Server. |
 | Relationships | Dotted paths (`customer.name`) in `select`, `where` and `orderBy`; returned as nested objects (`null` when the related row is absent or hidden). To-one only in v0.1. |
 | Values | Native JSON. Dates, GUIDs and enums are strings: see [docs/spec-profile.md](docs/spec-profile.md). |
 | Paging | `page.first` plus either `page.after` (cursor) or `page.offset` (bounded). The key is always appended as a tie-breaker, and `endCursor` is returned when every ordering field is cursor-eligible. |
@@ -175,14 +178,14 @@ The committed contract [openapi/v1.json](openapi/v1.json) is checked by the test
 ## Development
 
 ```sh
-dotnet test                                    # needs Docker (Testcontainers PostgreSQL 17)
+dotnet test                                    # needs Docker (Testcontainers PostgreSQL 17 + SQL Server 2022)
 OPENFETCH_UPDATE_SNAPSHOTS=1 dotnet test       # rewrite conformance/ and openapi/ snapshots after an intended change
 eng/sdk-smoke/run.sh                           # generate + compile C#/TS clients (needs Node)
 ```
 
 The test suite covers:
 
-- **Conformance corpus** ([conformance/](conformance)): valid cases with AST, SQL plan and live-result snapshots, and invalid cases with their expected `code` and `path`.
+- **Conformance corpus** ([conformance/](conformance)): valid cases with AST, per-provider SQL plan and live-result snapshots, and invalid cases with their expected `code` and `path`. SQL Server must return byte-identical results to PostgreSQL.
 - **Injection:** hostile identifiers and values.
 - **Tenant isolation:** application policies, RLS alone, and pool reuse.
 - **Cursors:** tampering, replay, shape change, model change, expiry.
@@ -211,7 +214,7 @@ dotnet nuget add source "https://gitlab.highgeek.eu/api/v4/projects/5/packages/n
 
 ## Status and known limits (v0.1)
 
-- **Providers:** PostgreSQL only; SQL Server is v0.2.
+- **Providers:** PostgreSQL and SQL Server. On SQL Server, `distinct` queries use native NULL ordering, because ORDER BY may only reference select-list items under DISTINCT.
 - **Plan reuse:** SQL text depends only on the query shape, never on values or tenants, so the provider statement cache and the database plan cache reuse plans without a separate OpenFetch cache.
 - **Not yet supported:** aggregation, grouping, collection relationships, and inheritance or owned-type datasets. They are rejected at startup or with `unsupported_provider_feature`.
 - **Response buffering:** responses are buffered up to `MaximumResponseBytes` (4 MiB by default) before they are sent, so a limit breach still returns a clean error status.

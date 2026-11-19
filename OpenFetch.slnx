@@ -4,6 +4,7 @@
     <Project Path="src/OpenFetch.AspNetCore.OpenApi/OpenFetch.AspNetCore.OpenApi.csproj" />
     <Project Path="src/OpenFetch.AspNetCore/OpenFetch.AspNetCore.csproj" />
     <Project Path="src/OpenFetch.Compiler.PostgreSql/OpenFetch.Compiler.PostgreSql.csproj" />
+    <Project Path="src/OpenFetch.Compiler.SqlServer/OpenFetch.Compiler.SqlServer.csproj" />
     <Project Path="src/OpenFetch.Core/OpenFetch.Core.csproj" />
     <Project Path="src/OpenFetch.EntityFrameworkCore/OpenFetch.EntityFrameworkCore.csproj" />
   </Folder>

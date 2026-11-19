@@ -11,8 +11,9 @@ public static class TestEngine
 {
     public static readonly ICursorProtector Cursors = new DataProtectionCursorProtector(new EphemeralDataProtectionProvider());
 
-    public static QueryEngine Create(QueryModel? model = null, TimeProvider? time = null, SecurityOptions? security = null, IEnumerable<IRowPolicyProvider>? providers = null) =>
-        new(model ?? TestModel.Default, new PostgreSqlCompiler(), Cursors, security ?? new OpenFetchOptions().Security, providers, time);
+    public static QueryEngine Create(QueryModel? model = null, TimeProvider? time = null, SecurityOptions? security = null,
+        IEnumerable<IRowPolicyProvider>? providers = null, IQueryCompiler? compiler = null) =>
+        new(model ?? TestModel.Default, compiler ?? new PostgreSqlCompiler(), Cursors, security ?? new OpenFetchOptions().Security, providers, time);
 
     public static readonly string[] AllPolicies = ["Orders.FinancialData", "Orders.Read", "Customers.Read"];
 

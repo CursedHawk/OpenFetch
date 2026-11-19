@@ -30,7 +30,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         await using var db = CreateDbContext();
         await db.Database.EnsureCreatedAsync();
         SeedData.Seed(db);
-        await db.Database.ExecuteSqlRawAsync(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "postgresql-rls.sql")));
+        await db.Database.ExecuteSqlRawAsync(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "samples", "postgresql-rls.sql")));
     }
 
     public ValueTask DisposeAsync() => _container.DisposeAsync();

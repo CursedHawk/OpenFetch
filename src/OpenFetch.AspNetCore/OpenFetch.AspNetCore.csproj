@@ -6,6 +6,5 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\OpenFetch.Core\OpenFetch.Core.csproj" />
     <ProjectReference Include="..\OpenFetch.EntityFrameworkCore\OpenFetch.EntityFrameworkCore.csproj" />
-    <ProjectReference Include="..\OpenFetch.Compiler.PostgreSql\OpenFetch.Compiler.PostgreSql.csproj" />
   </ItemGroup>
 </Project>

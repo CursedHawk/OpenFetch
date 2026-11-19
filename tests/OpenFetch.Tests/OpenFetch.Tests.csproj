@@ -10,6 +10,9 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.MsSql" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="JunitXml.TestLogger" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
@@ -17,8 +20,10 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\OpenFetch.AspNetCore.OpenApi\OpenFetch.AspNetCore.OpenApi.csproj" />
+    <ProjectReference Include="..\..\src\OpenFetch.Compiler.PostgreSql\OpenFetch.Compiler.PostgreSql.csproj" />
+    <ProjectReference Include="..\..\src\OpenFetch.Compiler.SqlServer\OpenFetch.Compiler.SqlServer.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\samples\postgresql-rls.sql" Link="postgresql-rls.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\samples\*.sql" LinkBase="samples" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

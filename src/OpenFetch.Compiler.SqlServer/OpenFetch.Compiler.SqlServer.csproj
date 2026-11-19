@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenFetch SQL Server compiler: parameterized T-SQL with trusted identifiers, OPENJSON-based IN lists, OFFSET/FETCH paging and SESSION_CONTEXT row-level security setup.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenFetch.Core\OpenFetch.Core.csproj" />
+  </ItemGroup>
+</Project>

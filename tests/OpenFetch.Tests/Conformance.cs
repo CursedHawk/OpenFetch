@@ -29,12 +29,22 @@ public static class Corpus
     public static void Snapshot(string folder, string file, string actual)
     {
         var path = Path.Combine(Root, "conformance", folder, file);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         actual = actual.ReplaceLineEndings("\n");
         if (Update || !File.Exists(path)) { File.WriteAllText(path, actual); return; }
         Assert.Equal(File.ReadAllText(path).ReplaceLineEndings("\n"), actual);
     }
 
     public static string Dataset(string name) => name[..name.IndexOf('.')];
+
+    /// <summary>Response JSON with run-specific values (cursor token, model hash) masked.</summary>
+    public static string Result(ReadOnlySpan<byte> json)
+    {
+        var result = JsonNode.Parse(json)!;
+        if (result["page"]!["endCursor"] is not null) result["page"]!["endCursor"] = "CURSOR";
+        result["meta"]!["modelVersion"] = "MODEL";
+        return result.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+    }
 
     public static string Plan(QueryPlan plan)
     {
@@ -96,9 +106,6 @@ public class ConformanceResultTests(PostgresFixture pg)
         await using var connection = new NpgsqlConnection(pg.ConnectionString);
         await Engine.ExecuteAsync(connection, prepared, context, output, TestContext.Current.CancellationToken);
 
-        var result = JsonNode.Parse(output.WrittenSpan)!;
-        if (result["page"]!["endCursor"] is not null) result["page"]!["endCursor"] = "CURSOR";
-        result["meta"]!["modelVersion"] = "MODEL";
-        Corpus.Snapshot("expected-results", name + ".json", result.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        Corpus.Snapshot("expected-results", name + ".json", Corpus.Result(output.WrittenSpan));
     }
 }
