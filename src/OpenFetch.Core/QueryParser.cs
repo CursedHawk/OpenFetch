@@ -16,6 +16,8 @@ public static class QueryParser
     public static QueryDocument Parse(ReadOnlyMemory<byte> utf8, QueryLimits limits)
     {
         if (utf8.Length > limits.MaximumDocumentBytes) throw QueryErrors.DocumentTooLarge(limits.MaximumDocumentBytes);
+        // JsonDocument defers transcoding of names/strings; reject malformed UTF-8 up front so it can never surface later.
+        if (!System.Text.Unicode.Utf8.IsValid(utf8.Span)) throw QueryErrors.InvalidJson("The document is not valid UTF-8.");
         JsonDocument json;
         try
         {
@@ -29,7 +31,12 @@ public static class QueryParser
         {
             throw QueryErrors.InvalidJson(ex.Message.Split(" Path:")[0].Split(" LineNumber:")[0]);
         }
-        using (json) return new Parser(limits).Document(json.RootElement);
+        using (json)
+        {
+            // Escapes that decode to lone surrogates (e.g. "\uDD1E") are valid JSON but not valid strings; reading them throws.
+            try { return new Parser(limits).Document(json.RootElement); }
+            catch (InvalidOperationException) { throw QueryErrors.InvalidJson("The document contains an invalid string escape."); }
+        }
     }
 
     public static QueryDocument Parse(string json, QueryLimits limits) => Parse(System.Text.Encoding.UTF8.GetBytes(json), limits);
