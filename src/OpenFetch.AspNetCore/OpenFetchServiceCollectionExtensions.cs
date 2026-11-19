@@ -67,13 +67,13 @@ public static class OpenFetchServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Uses the portable signed cursor profile v1 (docs/cursor-profile-v1.md) instead of ASP.NET Core Data Protection.
+    /// Uses the portable encrypted cursor profile v1 (docs/cursor-profile-v1.md) instead of ASP.NET Core Data Protection.
     /// Every instance (and any other OpenFetch implementation) sharing these keys accepts the same cursors.
     /// </summary>
-    public static IServiceCollection AddOpenFetchSignedCursors(this IServiceCollection services, string currentKeyId, IReadOnlyDictionary<string, byte[]> keys)
+    public static IServiceCollection AddOpenFetchPortableCursors(this IServiceCollection services, string currentKeyId, IReadOnlyDictionary<string, byte[]> keys)
     {
         services.RemoveAll<ICursorProtector>();
-        return services.AddSingleton<ICursorProtector>(new SignedCursorProtector(currentKeyId, keys));
+        return services.AddSingleton<ICursorProtector>(new PortableCursorProtector(currentKeyId, keys));
     }
 
     private static QueryModel BuildModel<TDbContext>(IServiceProvider sp, OpenFetchOptions options) where TDbContext : DbContext

@@ -1,0 +1,17 @@
+{
+  "name": "@openfetch/query",
+  "version": "0.1.0",
+  "description": "Reference TypeScript query builder for the OpenFetch JSON query protocol",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

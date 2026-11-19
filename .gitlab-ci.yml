@@ -48,6 +48,14 @@ sdk:typescript:
   script:
     - eng/sdk-smoke/run.sh ts
 
+ts:query-builder:
+  stage: test
+  needs: []
+  image: node:24-alpine
+  cache: []
+  script:
+    - cd clients/typescript && npm install --no-audit --no-fund && npm test
+
 pack:
   stage: pack
   needs: [build, test]

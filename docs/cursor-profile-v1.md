@@ -1,23 +1,24 @@
-# Signed cursor profile, version 1
+# Portable cursor profile, version 1
 
-This profile is the portable cursor format of spec §20.1. Any OpenFetch implementation that shares the key can issue and verify these cursors. Enable it with `services.AddOpenFetchSignedCursors("k1", keys)`; without it, cursors fall back to ASP.NET Core Data Protection, whose format is implementation-specific.
+This profile is the portable cursor format of spec §20.1. Any OpenFetch implementation that holds the shared key can issue and read these cursors. Enable it with `services.AddOpenFetchPortableCursors("k1", keys)`; without it, cursors use ASP.NET Core Data Protection, whose format is implementation-specific. Both formats are encrypted and authenticated.
+
+Cursors **must be confidential** as well as authenticated. The ordering values they carry can include the key tie-breaker or sort-only columns that the caller cannot select.
 
 ## Format
 
 ```
-of1.<kid>.<payload>.<mac>
+of1.<kid>.<base64url(nonce ‖ ciphertext ‖ tag)>
 ```
 
 | Part | Content |
 |---|---|
 | `of1` | Profile identifier and version |
-| `kid` | Key id: 1–32 ASCII letters or digits. Several keys may verify, which allows rotation; only the current key signs. |
-| `payload` | base64url (RFC 4648 §5, no padding) of the UTF-8 JSON payload |
-| `mac` | base64url of HMAC-SHA256(key, ASCII bytes of `of1.<kid>.<payload>`). Keys are at least 256 bits. |
+| `kid` | Key id: 1–32 ASCII letters or digits. Several keys may decrypt, which allows rotation; only the current key encrypts. |
+| Encryption | AES-256-GCM with a 12-byte random nonce and a 16-byte tag. base64url is RFC 4648 §5, without padding. |
+| Key | HKDF-SHA256 over the shared key (at least 256 bits), with an empty salt, info `openfetch cursor v1` and 32-byte output |
+| Associated data | The ASCII bytes of `of1.<kid>` |
 
-Cursors are **authenticated, not encrypted**. The payload holds only values the caller already received, plus hashes.
-
-## Payload
+## Payload (UTF-8 JSON, encrypted)
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -31,15 +32,15 @@ Cursors are **authenticated, not encrypted**. The payload holds only values the 
 
 Verification must happen in this order. Any failure produces `invalid_cursor`, except a scope mismatch, which produces `cursor_scope_mismatch`.
 
-1. Split the cursor into exactly 4 parts. The prefix must be `of1` and the key id must be known.
-2. Recompute the MAC and compare it in **constant time**.
+1. Split the cursor into exactly 3 parts. The prefix must be `of1` and the key id must be known.
+2. Decrypt with the derived key and the associated data. The tag must verify.
 3. Decode the payload JSON and require `x` to be in the future.
-4. Require `m`, `s` and `c` to equal the values recomputed for the current request. A cursor issued under another tenant, policy scope, query shape or model version is therefore rejected (`cursor_scope_mismatch`).
+4. Require `m`, `s` and `c` to equal the values recomputed for the current request (`cursor_scope_mismatch`).
 5. Require `k` to have one entry per ordering field, and convert each entry with that field's trusted metadata.
 
 ## Test vector
 
-Key id `k1` with key = the ASCII bytes of `openfetch-test-key-0123456789abcdef`, and this payload:
+Key id `k1` with shared key = the ASCII bytes of `openfetch-test-key-0123456789abcdef`, nonce = bytes `00 01 … 0b` (fixed for the vector only; real nonces are random), and this payload:
 
 ```json
 {"m":"0123456789abcdef","s":"fedcba9876543210","c":"00112233445566aa","x":1800000000,"k":["2026-01-09T12:00:00Z","aaaaaaaa-1111-0000-0000-000000000009"]}
@@ -48,5 +49,5 @@ Key id `k1` with key = the ASCII bytes of `openfetch-test-key-0123456789abcdef`,
 produces this cursor:
 
 ```text
-of1.k1.eyJtIjoiMDEyMzQ1Njc4OWFiY2RlZiIsInMiOiJmZWRjYmE5ODc2NTQzMjEwIiwiYyI6IjAwMTEyMjMzNDQ1NTY2YWEiLCJ4IjoxODAwMDAwMDAwLCJrIjpbIjIwMjYtMDEtMDlUMTI6MDA6MDBaIiwiYWFhYWFhYWEtMTExMS0wMDAwLTAwMDAtMDAwMDAwMDAwMDA5Il19.Jzro2SrTQ3KyBeNv5d3MTNaCvYrLOYgJfeJmaj_t5Fo
+of1.k1.AAECAwQFBgcICQoL0z74UXUcJp1pFznG2u35JfgqCjvoGUS0rbCN78BvaOoF1YvbQynNA8yhZlPKcK6Xr8OnkR5FehbBFGWY35gVaN2GAB6Rf3HxuNbMlabaVGBQSu4pZl8iVsKfkwX2oqFdrTgqDAR0jtn3OaPp8TYBqb6jWmiWtGGoJqXL__n_GKJMQe4obsiVdTEfvTTjhU43uzI43ijEcvbzJO42YJrx1rbHU1-9CDLtgA
 ```
