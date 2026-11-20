@@ -8,7 +8,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <Authors>OpenFetch contributors</Authors>
     <PackageProjectUrl>https://gitlab.highgeek.eu/cursedhawk/openfetch</PackageProjectUrl>
-    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionPrefix>0.2.0</VersionPrefix>
     <RepositoryUrl>https://gitlab.highgeek.eu/cursedhawk/openfetch</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>openfetch;query;json;efcore;aspnetcore;openapi;postgresql</PackageTags>

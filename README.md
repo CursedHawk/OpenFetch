@@ -110,7 +110,7 @@ The model is built and validated once, when the endpoints are mapped. If anythin
 | TPH (one table per hierarchy) | Any type can be a dataset. A derived dataset receives a trusted discriminator predicate, so it only ever sees its own type and subtypes, including through joins, `any` and `expand`. |
 | TPT (one table per type) | A derived dataset `INNER JOIN`s each base-type table on the key. Inherited columns are read from their own table. |
 | TPC (one table per concrete type) | A type with subtypes reads `UNION ALL` over every concrete table. A leaf type reads its own table. |
-| Owned reference (`OwnsOne`, table splitting) | Owned properties are dotted columns (`home.city`) returned as nested objects. The owner navigation needs `[QueryRelationship]` and each owned property `[QueryColumn]`. |
+| Owned reference (`OwnsOne`, table splitting) | Owned properties are dotted columns (`home.city`) returned as nested objects. The owner navigation needs `[QueryRelationship]` and each owned property `[QueryColumn]`. An absent optional owned reference is `null`, as EF Core loads it: OpenFetch writes `"home": null` when every owned field the caller may read is null, even if only some are selected. Required owned references are always objects. |
 | Owned collection (`OwnsMany`) | Becomes an internal dataset, reachable only via `any`/`expand` through its owner and never queryable directly. |
 
 ## Security model

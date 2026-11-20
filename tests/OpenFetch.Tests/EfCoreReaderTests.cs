@@ -66,6 +66,35 @@ public class EfCoreReaderTests
         Assert.Contains("People.Read", model.Datasets["phone"].Policies); // internal dataset inherits its owner's policy
     }
 
+    public class Secret
+    {
+        [QueryColumn("note", AuthorizationPolicy = "Pii")] public string? Note { get; set; }
+        [QueryColumn("label")] public string? Label { get; set; }
+    }
+    [QueryDataset("vaults")] public class Vault
+    {
+        [QueryColumn("id")] public int Id { get; set; }
+        [QueryRelationship("secret")] public Secret? Secret { get; set; }
+    }
+    private sealed class VaultContext(DbContextOptions<VaultContext> options) : DbContext(options)
+    {
+        protected override void OnModelCreating(ModelBuilder b) => b.Entity<Vault>().OwnsOne(v => v.Secret);
+    }
+
+    [Fact]
+    public async Task Optional_owned_presence_reads_only_columns_the_caller_may_see()
+    {
+        var model = QueryModelBuilder.Build(EfCoreModelReader.Read(new VaultContext(new DbContextOptionsBuilder<VaultContext>().UseNpgsql("Host=unused").Options).Model), new OpenFetchOptions());
+        Assert.Equal(["secret.label", "secret.note"], model.Datasets["vaults"].OptionalOwned["secret"].Select(c => c.PublicName));
+
+        var engine = TestEngine.Create(model);
+        var withoutPii = await engine.PrepareAsync("vaults", """{"select":["secret.label"]}""", TestEngine.Context(Domain.SeedData.TenantA, []));
+        Assert.Contains("CASE WHEN t0.\"Secret_Label\" IS NOT NULL THEN 1 END", withoutPii.Plan.CommandText);
+        Assert.DoesNotContain("Secret_Note", withoutPii.Plan.CommandText); // a field the caller cannot read never decides whether the object exists
+        var withPii = await engine.PrepareAsync("vaults", """{"select":["secret.label"]}""", TestEngine.Context(Domain.SeedData.TenantA, ["Pii"]));
+        Assert.Contains("t0.\"Secret_Label\" IS NOT NULL OR t0.\"Secret_Note\" IS NOT NULL", withPii.Plan.CommandText);
+    }
+
     [Fact]
     public void Query_filter_warns_and_unattributed_entities_are_invisible()
     {

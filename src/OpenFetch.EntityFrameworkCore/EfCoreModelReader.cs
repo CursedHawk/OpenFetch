@@ -36,6 +36,7 @@ public static class EfCoreModelReader
 
         var store = Store(e);
         var properties = ImmutableArray.CreateBuilder<PropertyMapping>();
+        var optionalOwned = ImmutableArray.CreateBuilder<string>();
         var inherited = ImmutableArray<InheritedTable>.Empty;
         var union = ImmutableArray<UnionBranch>.Empty;
         (string, ImmutableArray<object>)? typeFilter = null;
@@ -76,7 +77,7 @@ public static class EfCoreModelReader
                 var levelStore = level == 0 ? s : Store(levels[level])!.Value;
                 if (p.GetColumnName(levelStore) is { } column) properties.Add(Read(p, column, level));
             }
-            AddOwned(e, levels, s, "", properties);
+            AddOwned(e, levels, s, "", properties, optionalOwned);
         }
         else
         {
@@ -111,11 +112,13 @@ public static class EfCoreModelReader
             Union = union,
             TypeFilter = typeFilter,
             IsOwnedCollection = e.IsOwned(),
+            OptionalOwned = optionalOwned.ToImmutable(),
         };
     }
 
     /// <summary>Flattens owned references stored in the owner's table (table splitting) into dotted properties, recursively.</summary>
-    private static void AddOwned(IEntityType owner, List<IEntityType> levels, StoreObjectIdentifier ownerStore, string prefix, ImmutableArray<PropertyMapping>.Builder properties)
+    private static void AddOwned(IEntityType owner, List<IEntityType> levels, StoreObjectIdentifier ownerStore, string prefix, ImmutableArray<PropertyMapping>.Builder properties,
+        ImmutableArray<string>.Builder optionalOwned)
     {
         foreach (var nav in owner.GetNavigations().Where(n => n.ForeignKey.IsOwnership && n.ForeignKey.IsUnique && !n.IsOnDependent))
         {
@@ -124,6 +127,7 @@ public static class EfCoreModelReader
             var store = level == 0 ? ownerStore : Store(levels[level])!.Value;
             if (Store(owned) is not { } ownedStore || ownedStore != store) continue; // owned type in its own table: not supported as columns
             var optional = !nav.ForeignKey.IsRequiredDependent;
+            if (optional) optionalOwned.Add(prefix + nav.Name);
             foreach (var p in owned.GetProperties().Where(p => !p.IsPrimaryKey()))
                 if (p.GetColumnName(store) is { } column)
                 {
@@ -135,7 +139,7 @@ public static class EfCoreModelReader
                         DeclaringType = owned.ClrType,
                     });
                 }
-            AddOwned(owned, [owned], store, prefix + nav.Name + ".", properties);
+            AddOwned(owned, [owned], store, prefix + nav.Name + ".", properties, optionalOwned);
         }
     }
 

@@ -25,6 +25,8 @@ public sealed record EntityMapping
     public (string Property, ImmutableArray<object> Values)? TypeFilter { get; init; }
     /// <summary>EF owned collection (own table): only reachable as a collection relationship of its owner.</summary>
     public bool IsOwnedCollection { get; init; }
+    /// <summary>Optional owned references flattened into this entity, by property path ("Home", "Home.Geo").</summary>
+    public ImmutableArray<string> OptionalOwned { get; init; } = [];
 }
 
 public sealed record PropertyMapping

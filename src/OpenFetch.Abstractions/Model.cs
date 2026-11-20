@@ -53,6 +53,11 @@ public sealed record DatasetDescriptor
     public ImmutableArray<UnionBranch> Union { get; init; } = [];
     /// <summary>Reachable only as a collection of another dataset (EF owned collections); never queried directly.</summary>
     public bool Internal { get; init; }
+    /// <summary>
+    /// Optional owned references (table splitting) by public path ("home") -> their exposed columns. Written as JSON null when
+    /// every column the caller may read is null, the way EF Core materializes an absent optional owned reference.
+    /// </summary>
+    public FrozenDictionary<string, ImmutableArray<ColumnDescriptor>> OptionalOwned { get; init; } = FrozenDictionary<string, ImmutableArray<ColumnDescriptor>>.Empty;
 
     public IEnumerable<ColumnDescriptor> ExposedColumns => AllColumns.Where(c => c.Exposed);
 

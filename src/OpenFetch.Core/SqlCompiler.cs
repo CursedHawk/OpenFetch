@@ -207,6 +207,12 @@ public abstract class SqlCompiler : IQueryCompiler
         public void Column(ResolvedField f)
         {
             if (f.Aggregate is { } a) Aggregate(a);
+            else if (!f.Presence.IsEmpty)
+            {
+                Sql.Append("CASE WHEN ");
+                for (var i = 0; i < f.Presence.Length; i++) { if (i > 0) Sql.Append(" OR "); Column(f.Alias, f.Presence[i]); Sql.Append(" IS NOT NULL"); }
+                Sql.Append(" THEN 1 END");
+            }
             else Column(f.Alias, f.Column);
         }
 

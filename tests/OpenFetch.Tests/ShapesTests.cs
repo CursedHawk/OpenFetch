@@ -58,6 +58,14 @@ public abstract class ShapesTests
         var bob = await Run("people", """{"select":["name","home.city"],"where":{"type":"comparison","field":"home.city","operator":"eq","value":"Brno"}}""");
         Assert.Equal("Brno", bob[0].GetProperty("home").GetProperty("city").GetString());
 
+        // An absent optional owned reference is null (as EF Core loads it), even when only some of its fields are selected.
+        var homes = await Run("people", """{"select":["name","home.zip"],"orderBy":[{"field":"id"}]}""");
+        Assert.Equal("11000", homes[0].GetProperty("home").GetProperty("zip").GetString());
+        Assert.Equal(JsonValueKind.Null, homes[2].GetProperty("home").ValueKind);
+        var distinct = await Run("people", """{"select":["home.city"],"distinct":true,"orderBy":[{"field":"home.city"}]}""");
+        Assert.Equal(3, distinct.GetArrayLength());
+        Assert.Single(distinct.EnumerateArray(), r => r.GetProperty("home").ValueKind == JsonValueKind.Null);
+
         var work = await Run("people", """{"select":["name"],"where":{"type":"any","relationship":"phones","where":{"type":"comparison","field":"kind","operator":"eq","value":"work"}}}""");
         Assert.Equal(["Ann"], Values(work, "name"));
 

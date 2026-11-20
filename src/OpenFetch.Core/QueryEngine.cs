@@ -417,14 +417,15 @@ public sealed class QueryEngine(
                 if (c.Role is ResultRole.Cursor or ResultRole.ExpandKey) continue;
                 var segments = c.Field.Path.Split('.');
                 var node = root;
-                var depth = c.Role == ResultRole.JoinKey ? segments.Length : segments.Length - 1;
+                var isKey = c.Role is ResultRole.JoinKey or ResultRole.OwnedKey;
+                var depth = isKey ? segments.Length : segments.Length - 1;
                 for (var s = 0; s < depth; s++)
                 {
                     var existing = node._items.FirstOrDefault(x => x.Name == segments[s] && x.Child is not null);
                     if (existing.Child is null) node._items.Add(existing = (segments[s], -1, new OutputTree()));
                     node = existing.Child!;
                 }
-                if (c.Role == ResultRole.JoinKey) node._keyIndex = i;
+                if (isKey) node._keyIndex = i;
                 else node._items.Add((segments[^1], i, null));
             }
             return root;
@@ -545,6 +546,7 @@ internal static class Keys
         sb.Append(QueryParser.Version).Append('|').Append(compiler.ProviderName).Append('/').Append(compiler.CompilerVersion).Append('|').Append(modelVersion)
           .Append('|').Append(q.Dataset.PublicName).Append('|').Append(q.Distinct);
         foreach (var j in q.Joins) sb.Append("|j:").Append(j.Path);
+        foreach (var p in q.OwnedPresence) sb.Append("|op:").Append(p.Path).Append('=').Append(string.Join(',', p.Presence.Select(c => c.PublicName)));
         foreach (var f in q.Select) sb.Append("|s:").Append(f.Path).Append(f.Aggregate is { } a ? $"={a.Function}({a.Argument?.Path})" : "");
         foreach (var g in q.GroupBy) sb.Append("|g:").Append(g.Path);
         sb.Append("|h:"); Filter(sb, q.Having);

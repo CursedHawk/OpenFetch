@@ -26,6 +26,7 @@ A provider is an `IQueryCompiler` implementation for a database. The normative r
    - TPT: render the base-table join tree.
    - TPC: render the `UNION ALL` source.
    - TPH: honour the discriminator policy, which arrives as a normal trusted predicate.
+   - Optional owned references: a result field with non-empty `Presence` (role `OwnedKey`) compiles to `CASE WHEN c1 IS NOT NULL OR … THEN 1 END`; the engine writes the owned object as `null` when it is NULL. `SqlCompiler` subclasses get this for free.
 9. **Session setup.**
    - Set security values on the query's own connection, before the query, in the same transaction.
    - Make sure they cannot outlive the request: transaction-local settings, or a teardown command (`CompileSessionTeardown`) plus a pooled-connection reset.

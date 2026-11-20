@@ -214,8 +214,16 @@ public static partial class QueryModelBuilder
             InheritedTables = m.InheritedTables,
             Union = m.Union,
             Internal = isInternal,
+            OptionalOwned = OptionalOwned(m, all),
         };
     }
+
+    /// <summary>Public path of each optional owned reference -> its exposed columns (the public path has as many segments as the property path).</summary>
+    private static FrozenDictionary<string, ImmutableArray<ColumnDescriptor>> OptionalOwned(EntityMapping m, ImmutableArray<ColumnDescriptor> all) =>
+        m.OptionalOwned
+            .Select(path => (Depth: path.Split('.').Length, Columns: all.Where(c => c.Exposed && c.PropertyName.StartsWith(path + ".", StringComparison.Ordinal)).ToImmutableArray()))
+            .Where(o => !o.Columns.IsEmpty)
+            .ToFrozenDictionary(o => string.Join('.', o.Columns[0].PublicName.Split('.').Take(o.Depth)), o => o.Columns, StringComparer.Ordinal);
 
     private static ColumnDescriptor? BuildColumn(EntityMapping m, PropertyMapping p, MemberConfig? cfg, OpenFetchOptions options, bool indexed, string where, List<string> errors)
     {

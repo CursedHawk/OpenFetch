@@ -283,7 +283,7 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
 
         // §18.5: a superset row; every property optional because only selected fields are returned.
         var row = new Dictionary<string, IOpenApiSchema>();
-        foreach (var c in d.ExposedColumns.Where(c => c.Can(ColumnCapabilities.Select) && allowed(c.Policies))) Nest(row, c.PublicName.Split('.'), Column(c));
+        foreach (var c in d.ExposedColumns.Where(c => c.Can(ColumnCapabilities.Select) && allowed(c.Policies))) Nest(row, d, c.PublicName.Split('.'), Column(c));
         foreach (var r in expandable)
             row[r.PublicName] = new OpenApiSchema
             {
@@ -333,12 +333,23 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
     }, "data", "page", "meta");
 
     /// <summary>Places a dotted owned column ("home.city") as a nested object property of the row schema.</summary>
-    private static void Nest(IDictionary<string, IOpenApiSchema> properties, string[] path, IOpenApiSchema leaf)
+    private static void Nest(IDictionary<string, IOpenApiSchema> properties, DatasetDescriptor d, string[] path, IOpenApiSchema leaf, string owned = "")
     {
         if (path.Length == 1) { properties[path[0]] = leaf; return; }
+        var full = owned + path[0];
         if (!properties.TryGetValue(path[0], out var existing) || existing is not OpenApiSchema { Properties: { } } nested)
-            properties[path[0]] = nested = new OpenApiSchema { Type = JsonSchemaType.Object, Properties = new Dictionary<string, IOpenApiSchema>(), Description = "Owned value object." };
-        Nest(nested.Properties!, path[1..], leaf);
+            properties[path[0]] = nested = OwnedObject(d, full, new Dictionary<string, IOpenApiSchema>());
+        Nest(nested.Properties!, d, path[1..], leaf, full + ".");
+    }
+
+    /// <summary>Owned value object; optional owned references are null when absent (all their readable fields null).</summary>
+    private static OpenApiSchema OwnedObject(DatasetDescriptor d, string path, Dictionary<string, IOpenApiSchema> properties, params string[] required)
+    {
+        var schema = required.Length == 0 ? new OpenApiSchema { Type = JsonSchemaType.Object, Properties = properties } : Object(properties, required);
+        var optional = d.OptionalOwned.ContainsKey(path);
+        if (optional) schema.Type = JsonSchemaType.Object | JsonSchemaType.Null;
+        schema.Description = optional ? "Owned value object; null when absent." : "Owned value object.";
+        return schema;
     }
 
     private static OpenApiSchema ProjectionRow(QueryModel model, DatasetDescriptor d, List<(string Path, string[] Segments)> fields, int depth, string owned = "")
@@ -355,7 +366,11 @@ public sealed class OpenFetchDocumentTransformer(QueryEngine engine, Func<IEnume
                 nested.Description = "Null when the related row is absent or not visible.";
                 properties[group.Key] = nested;
             }
-            else properties[group.Key] = ProjectionRow(model, d, [.. group], depth + 1, full + "."); // owned value object, same row
+            else // owned value object, same row
+            {
+                var nested = ProjectionRow(model, d, [.. group], depth + 1, full + ".");
+                properties[group.Key] = OwnedObject(d, full, (Dictionary<string, IOpenApiSchema>)nested.Properties!, [.. nested.Required!]);
+            }
         }
         return Object(properties, [.. properties.Keys]);
     }

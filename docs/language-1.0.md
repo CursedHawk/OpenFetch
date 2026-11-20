@@ -113,7 +113,7 @@ An aggregate query uses `groupBy` (fields with the `group` capability) and/or `a
 {"data": [...], "page": {"count": n, "hasNext": bool, "endCursor": string|null}, "meta": {"dataset": "...", "modelVersion": "..."}}
 ```
 
-Rows contain only the selected fields. To-one relationships and owned values are nested objects; a missing related row is `null`.
+Rows contain only the selected fields. To-one relationships and owned values are nested objects; a missing related row is `null`, and so is an optional owned value whose readable fields are all null.
 
 **Errors.** Errors are Problem Details (`application/problem+json`) with a stable `code` and a JSON Pointer `path`:
 

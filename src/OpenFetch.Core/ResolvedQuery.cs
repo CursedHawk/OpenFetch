@@ -27,6 +27,8 @@ public sealed record ResolvedQuery
     public bool IsAggregate { get; init; }
     /// <summary>One-to-many expansions, executed as a second query per expansion in the same transaction.</summary>
     public ImmutableArray<ResolvedExpansion> Expansions { get; init; } = [];
+    /// <summary>Presence flags of optional owned references in the selection (path = the owned object's path).</summary>
+    public ImmutableArray<ResolvedField> OwnedPresence { get; init; } = [];
     /// <summary>Set only by the engine's security step; compilers refuse anything not secured (fail closed).</summary>
     public bool Secured { get; init; }
 }
@@ -61,6 +63,17 @@ public sealed record ResolvedField(string Alias, string Path, ColumnDescriptor C
 {
     /// <summary>Set for aggregate outputs: <see cref="Column"/> is then a synthetic descriptor of the result type and <see cref="Path"/> the alias.</summary>
     public ResolvedAggregate? Aggregate { get; init; }
+    /// <summary>
+    /// Set for presence flags: compiles to 1 when any of these columns is non-null, else NULL. <see cref="Column"/> is then
+    /// <see cref="PresenceFlag"/> and <see cref="Path"/> the owned object's path.
+    /// </summary>
+    public ImmutableArray<ColumnDescriptor> Presence { get; init; } = [];
+
+    public static readonly ColumnDescriptor PresenceFlag = new()
+    {
+        PublicName = "", PropertyName = "", ClrType = typeof(int), Kind = ScalarKind.Integer, Nullable = true, Exposed = false,
+        Physical = new PhysicalColumn("", null, typeof(int), null, null),
+    };
 }
 
 /// <summary>An aggregate over an optional argument field (null = count rows).</summary>
@@ -114,6 +127,8 @@ public enum ResultRole
     JoinKey,
     /// <summary>Parent key of a collection expansion: used to attach the expanded rows.</summary>
     ExpandKey,
+    /// <summary>Presence flag of an optional owned reference: null means the owned object is written as null.</summary>
+    OwnedKey,
 }
 
 /// <summary>One SELECT-list entry. Compilers must emit exactly <see cref="For"/>'s columns, in order.</summary>
@@ -129,6 +144,7 @@ public sealed record ResultColumn(ResolvedField Field, ResultRole Role)
         foreach (var join in q.Joins.Where(j => q.Select.Any(f => f.Path.StartsWith(j.Path + ".", StringComparison.Ordinal))))
             columns.Add(new ResultColumn(new ResolvedField(join.Alias, join.Path, join.Target.Key[0]), ResultRole.JoinKey));
         foreach (var e in q.Expansions) columns.Add(new ResultColumn(e.ParentKey, ResultRole.ExpandKey));
+        foreach (var p in q.OwnedPresence) columns.Add(new ResultColumn(p, ResultRole.OwnedKey));
         return [.. columns];
     }
 

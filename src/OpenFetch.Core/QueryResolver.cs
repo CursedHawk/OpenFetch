@@ -76,7 +76,32 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
             Distinct = Distinct(doc),
             CursorCapable = CursorAllowed(doc.Page, cursorCapable) && cursorCapable,
             Expansions = expansions,
+            OwnedPresence = OwnedPresence(select),
         };
+    }
+
+    /// <summary>
+    /// One presence flag per optional owned reference in the selection, over the owned columns this caller may read:
+    /// the object is written as null only when all of those are null, and hidden columns never show through.
+    /// </summary>
+    private ImmutableArray<ResolvedField> OwnedPresence(ImmutableArray<ResolvedField> select)
+    {
+        var result = new List<ResolvedField>();
+        foreach (var f in select)
+        {
+            var dataset = f.Alias == "t0" ? root : _joins.First(j => j.Alias == f.Alias).Target;
+            var basePath = f.Path[..^f.Column.PublicName.Length];
+            foreach (var (owned, columns) in dataset.OptionalOwned)
+            {
+                var path = basePath + owned;
+                if (!f.Column.PublicName.StartsWith(owned + ".", StringComparison.Ordinal) || result.Any(r => r.Path == path)) continue;
+                result.Add(new ResolvedField(f.Alias, path, ResolvedField.PresenceFlag)
+                {
+                    Presence = [.. columns.Where(c => c.Can(ColumnCapabilities.Select) && allowed(c.Policies))],
+                });
+            }
+        }
+        return [.. result];
     }
 
     private int PageSize(PageNode page)
