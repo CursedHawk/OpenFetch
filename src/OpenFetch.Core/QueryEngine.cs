@@ -328,8 +328,9 @@ public sealed class QueryEngine(
         {
             if (++read > budget) throw QueryErrors.ResponseTooLarge(model.Limits.MaximumResponseBytes);
             var key = ValueReader.Read(reader, 0, e.ForeignKey)!;
-            var values = new object?[e.Select.Length];
-            for (var i = 0; i < values.Length; i++) values[i] = ValueReader.Read(reader, i + 1, e.Select[i].Column);
+            var values = new object?[e.Select.Length + e.OwnedPresence.Length];
+            for (var i = 0; i < values.Length; i++)
+                values[i] = ValueReader.Read(reader, i + 1, i < e.Select.Length ? e.Select[i].Column : ResolvedField.PresenceFlag);
             if (!result.TryGetValue(key, out var list)) result[key] = list = [];
             list.Add(values);
         }
@@ -342,6 +343,9 @@ public sealed class QueryEngine(
         var tree = OutputTree.Build(columns);
         var expansions = p.Query.Expansions;
         var keyIndexes = expansions.Select(e => columns.ToList().FindIndex(c => c.Role == ResultRole.ExpandKey && c.Field.Path == e.ParentKey.Path)).ToArray();
+        // Expanded rows nest like parent rows: owned values are objects, null when absent.
+        var expansionTrees = expansions.Select(e => OutputTree.Build(
+            [.. e.Select.Select(f => new ResultColumn(f, ResultRole.Output)), .. e.OwnedPresence.Select(f => new ResultColumn(f, ResultRole.OwnedKey))])).ToArray();
         var orderIndexes = p.Query.CursorCapable
             ? p.Query.OrderBy.Select(o => columns.ToList().FindIndex(c => c.Role != ResultRole.JoinKey && ResultColumn.Same(c.Field, o.Field))).ToImmutableArray()
             : [];
@@ -361,16 +365,7 @@ public sealed class QueryEngine(
                 {
                     writer.WriteStartArray(expansions[x].Name);
                     if (row[keyIndexes[x]] is { } key && expanded[x].TryGetValue(key, out var children))
-                        foreach (var child in children)
-                        {
-                            writer.WriteStartObject();
-                            for (var i = 0; i < child.Length; i++)
-                            {
-                                writer.WritePropertyName(expansions[x].Select[i].Path);
-                                ValueWriter.Write(writer, child[i], expansions[x].Select[i].Column);
-                            }
-                            writer.WriteEndObject();
-                        }
+                        foreach (var child in children) expansionTrees[x].Write(writer, child);
                     writer.WriteEndArray();
                 }
             });
@@ -556,6 +551,7 @@ internal static class Keys
         foreach (var e in q.Expansions)
         {
             sb.Append("|x:").Append(e.Name).Append(':').Append(string.Join(',', e.Select.Select(f => f.Path))).Append(':').Append(e.Limit).Append("|xw:");
+            foreach (var p in e.OwnedPresence) sb.Append("|xop:").Append(p.Path).Append('=').Append(string.Join(',', p.Presence.Select(c => c.PublicName)));
             Filter(sb, e.Where);
             sb.Append("|xp:");
             Filter(sb, e.Policy);

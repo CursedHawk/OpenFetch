@@ -69,8 +69,11 @@ public abstract class ShapesTests
         var work = await Run("people", """{"select":["name"],"where":{"type":"any","relationship":"phones","where":{"type":"comparison","field":"kind","operator":"eq","value":"work"}}}""");
         Assert.Equal(["Ann"], Values(work, "name"));
 
-        var expanded = await Run("people", """{"select":["name"],"orderBy":[{"field":"name"}],"expand":[{"relationship":"phones","select":["number","kind"],"orderBy":[{"field":"kind"}]}]}""");
-        Assert.Equal(["mobile", "work"], expanded[0].GetProperty("phones").EnumerateArray().Select(p => p.GetProperty("kind").GetString()));
+        var expanded = await Run("people", """{"select":["name"],"orderBy":[{"field":"name"}],"expand":[{"relationship":"phones","select":["number","kind","extension.code"],"orderBy":[{"field":"kind"}]}]}""");
+        var phones = expanded[0].GetProperty("phones");
+        Assert.Equal(["mobile", "work"], phones.EnumerateArray().Select(p => p.GetProperty("kind").GetString()));
+        Assert.Equal("12", phones[0].GetProperty("extension").GetProperty("code").GetString()); // owned values nest in expanded rows too
+        Assert.Equal(JsonValueKind.Null, phones[1].GetProperty("extension").ValueKind);
         Assert.Equal(0, expanded[1].GetProperty("phones").GetArrayLength());
 
         var ex = await Assert.ThrowsAsync<OpenFetchException>(async () => await Engine.PrepareAsync("phone", """{"select":["number"]}""", TestEngine.Context(SeedData.TenantA)));

@@ -48,6 +48,8 @@ public sealed record ResolvedExpansion(
     ImmutableArray<ResolvedOrder> OrderBy,
     int Limit)
 {
+    /// <summary>Presence flags of optional owned references in <see cref="Select"/>, fetched after the selected columns.</summary>
+    public ImmutableArray<ResolvedField> OwnedPresence { get; init; } = [];
     public ResolvedFilter? Policy { get; init; }
     public bool Secured { get; init; }
 }
@@ -107,7 +109,7 @@ public interface IQueryCompiler
     QueryPlan Compile(ResolvedQuery query);
     /// <summary>Statement run first in the query's transaction: read-only mode plus transaction-local RLS settings.</summary>
     CompiledCommand CompileSessionSetup(IReadOnlyList<KeyValuePair<string, string?>> settings);
-    /// <summary>Rows for one expansion and a batch of parent keys; result columns are the foreign key, then the expansion's select.</summary>
+    /// <summary>Rows for one expansion and a batch of parent keys; result columns are the foreign key, the expansion's select, then its owned presence flags.</summary>
     CompiledCommand CompileExpansion(ResolvedExpansion expansion, IReadOnlyList<object> parentKeys);
     /// <summary>Statement run after the query (also on failure) to clear session-scoped security state; empty when settings are transaction-local.</summary>
     CompiledCommand CompileSessionTeardown(IReadOnlyList<KeyValuePair<string, string?>> settings) => new("", []);

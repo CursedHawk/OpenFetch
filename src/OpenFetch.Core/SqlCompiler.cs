@@ -107,7 +107,7 @@ public abstract class SqlCompiler : IQueryCompiler
     /// <summary>
     /// Split query for one collection expansion: per-parent top-N via ROW_NUMBER over the foreign key, restricted to the
     /// given parent keys (one parameter, shape-stable), with the target's trusted policy and the client filter.
-    /// Result columns: c0 = foreign key, then the expansion's select in order.
+    /// Result columns: c0 = foreign key, then the expansion's select in order, then its owned presence flags.
     /// </summary>
     public CompiledCommand CompileExpansion(ResolvedExpansion e, IReadOnlyList<object> parentKeys)
     {
@@ -116,12 +116,13 @@ public abstract class SqlCompiler : IQueryCompiler
         var sql = b.Sql;
         var alias = e.OrderBy[0].Field.Alias;
         var fk = new ResolvedField(alias, "", e.ForeignKey);
+        ImmutableArray<ResolvedField> fields = [.. e.Select, .. e.OwnedPresence];
         sql.Append("SELECT ");
-        for (var i = 0; i <= e.Select.Length; i++) sql.Append(i == 0 ? "" : ", ").Append("x.c").Append(i);
+        for (var i = 0; i <= fields.Length; i++) sql.Append(i == 0 ? "" : ", ").Append("x.c").Append(i);
         sql.Append("\nFROM (SELECT ");
         b.Column(fk);
         sql.Append(" AS c0");
-        for (var i = 0; i < e.Select.Length; i++) { sql.Append(", "); b.Column(e.Select[i]); sql.Append(" AS c").Append(i + 1); }
+        for (var i = 0; i < fields.Length; i++) { sql.Append(", "); b.Column(fields[i]); sql.Append(" AS c").Append(i + 1); }
         sql.Append(", ROW_NUMBER() OVER (PARTITION BY ");
         b.Column(fk);
         sql.Append(" ORDER BY ");

@@ -39,6 +39,11 @@ public class Phone
 {
     [QueryColumn("number", Filter = true)] public string Number { get; set; } = "";
     [QueryColumn("kind", Filter = true, Sort = true)] public string Kind { get; set; } = "";
+    [QueryRelationship("extension")] public PhoneExtension? Extension { get; set; }
+}
+public class PhoneExtension
+{
+    [QueryColumn("code")] public string? Code { get; set; }
 }
 
 [QueryDataset("people", Capabilities = DatasetCapabilities.Default | DatasetCapabilities.Distinct)]
@@ -66,7 +71,7 @@ public sealed class ShapesContext(DbContextOptions<ShapesContext> options) : DbC
         {
             e.Property(x => x.Id).ValueGeneratedNever();
             e.OwnsOne(x => x.Home);
-            e.OwnsMany(x => x.Phones, p => p.ToTable("Phones"));
+            e.OwnsMany(x => x.Phones, p => { p.ToTable("Phones"); p.OwnsOne(x => x.Extension); });
         });
     }
 
@@ -77,7 +82,7 @@ public sealed class ShapesContext(DbContextOptions<ShapesContext> options) : DbC
             new Cat { Id = 3, Name = "Tom", Lives = 9 }, new Dog { Id = 4, Name = "Fido", Breed = "Pug" },
             new Vehicle { Id = 1, Make = "Generic" }, new Car { Id = 2, Make = "Skoda", Doors = 5 },
             new CardPayment { Id = 1, Amount = 10.5m, Last4 = "4242" }, new BankPayment { Id = 2, Amount = 20m, Iban = "CZ65" },
-            new Person { Id = 1, Name = "Ann", Home = new() { City = "Prague", Zip = "11000" }, Phones = [new() { Number = "+420 1", Kind = "mobile" }, new() { Number = "+420 2", Kind = "work" }] },
+            new Person { Id = 1, Name = "Ann", Home = new() { City = "Prague", Zip = "11000" }, Phones = [new() { Number = "+420 1", Kind = "mobile", Extension = new() { Code = "12" } }, new() { Number = "+420 2", Kind = "work" }] },
             new Person { Id = 2, Name = "Bob", Home = new() { City = "Brno", Zip = "60200" } },
             new Person { Id = 3, Name = "Cyril" }); // no home: an absent optional owned reference
         db.SaveChanges();

@@ -84,12 +84,12 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
     /// One presence flag per optional owned reference in the selection, over the owned columns this caller may read:
     /// the object is written as null only when all of those are null, and hidden columns never show through.
     /// </summary>
-    private ImmutableArray<ResolvedField> OwnedPresence(ImmutableArray<ResolvedField> select)
+    private ImmutableArray<ResolvedField> OwnedPresence(ImmutableArray<ResolvedField> select, DatasetDescriptor? expansionTarget = null)
     {
         var result = new List<ResolvedField>();
         foreach (var f in select)
         {
-            var dataset = f.Alias == "t0" ? root : _joins.First(j => j.Alias == f.Alias).Target;
+            var dataset = expansionTarget ?? (f.Alias == "t0" ? root : _joins.First(j => j.Alias == f.Alias).Target);
             var basePath = f.Path[..^f.Column.PublicName.Length];
             foreach (var (owned, columns) in dataset.OptionalOwned)
             {
@@ -234,7 +234,7 @@ internal sealed class QueryResolver(QueryModel model, DatasetDescriptor root, Fu
         _expandedRows += limit;
         var (source, foreignKey) = rel.Join[0];
         return new ResolvedExpansion(rel.PublicName, rel, target, new ResolvedField("t0", "$expand:" + rel.PublicName, source), foreignKey,
-            select, where, [.. order], limit);
+            select, where, [.. order], limit) { OwnedPresence = OwnedPresence(select, target) };
     }
 
     // ---- Aggregation (§21): only Group/Aggregate-enabled, authorized columns; row policies still apply to WHERE. ----
